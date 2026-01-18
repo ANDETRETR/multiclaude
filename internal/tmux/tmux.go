@@ -57,7 +57,6 @@ func (c *Client) CreateWindow(session, windowName string) error {
 
 // HasWindow checks if a window exists in a session
 func (c *Client) HasWindow(session, windowName string) (bool, error) {
-	target := fmt.Sprintf("%s:%s", session, windowName)
 	cmd := exec.Command("tmux", "list-windows", "-t", session)
 	output, err := cmd.Output()
 	if err != nil {
