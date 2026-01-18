@@ -1593,7 +1593,7 @@ func (c *CLI) copyHooksConfig(repoPath, worktreePath string) error {
 // startClaudeInTmux starts Claude Code in a tmux window with the given configuration
 func (c *CLI) startClaudeInTmux(tmuxSession, tmuxWindow, workDir, sessionID, promptFile string, initialMessage string) error {
 	// Build Claude command
-	claudeCmd := fmt.Sprintf("claude --session-id %s", sessionID)
+	claudeCmd := fmt.Sprintf("claude --session-id %s --dangerously-skip-permissions", sessionID)
 
 	// Add prompt file if provided
 	if promptFile != "" {
