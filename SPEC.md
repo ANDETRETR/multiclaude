@@ -1,128 +1,145 @@
 # multiclaude Architecture Specification
 
-Version: 1.0
-Last Updated: 2026-01-18
-
 ## Overview
 
-multiclaude is a repo-centric orchestrator for managing multiple autonomous Claude Code instances working collaboratively on GitHub repositories. It uses tmux for session management, git worktrees for isolation, and a daemon-based architecture for coordination.
+multiclaude orchestrates multiple Claude Code instances working autonomously on GitHub repositories. It uses tmux for session management, git worktrees for isolation, and a daemon for coordination.
 
 ## Core Concepts
 
-### Agent Model
+### Agents
 
-An **agent** consists of three components:
-1. **Git worktree** - Isolated working directory for the agent
-2. **Claude Code instance** - Running in interactive mode with session tracking
-3. **tmux window** - In a repo-specific session, allowing human observation/interaction
+An **agent** is a Claude Code instance with:
+- A **tmux window** for visibility and interaction
+- A **git worktree** for isolated file access
+- A **role** defining its responsibilities (supervisor, worker, or merge-queue)
+- A **session ID** (UUID) for context persistence
 
-Agents run autonomously but humans can attach via tmux to observe or intervene at any time.
+Agents run autonomously. Humans can attach via tmux to observe or intervene at any time.
 
 ### Agent Types
 
-There are three types of agents per repository:
+**Supervisor**
+- One per repository
+- Monitors all other agents
+- Answers status questions ("what's everyone up to?")
+- Nudges stuck workers
+- Makes high-level decisions about task coordination
+- Keeps worktree synced with main branch
 
-1. **Supervisor Agent**
-   - Manages overall repository coordination
-   - Checks on all agents and nudges them when needed
-   - Human interface to the controller daemon
-   - Keeps worktree synced with main branch
-   - Broad scope: task-level, project-level, and orchestration-level decisions
+**Worker**
+- Executes a specific task
+- Creates a PR when work is complete
+- Signals completion, then gets cleaned up
+- Named with Docker-style names (e.g., "happy-platypus")
+- Multiple workers can run concurrently
 
-2. **Worker Agents**
-   - Execute specific tasks (features, bug fixes, etc.)
-   - Create PRs when work is complete
-   - Signal completion and wait for daemon cleanup
-   - Start from main branch by default (unless `--branch` specified)
-   - Named with Docker-style generated names (e.g., "happy-platypus")
+**Merge Queue**
+- One per repository
+- Monitors open PRs from workers
+- Merges when CI passes
+- Spawns fixup workers for CI failures
+- Never weakens CI without human approval
 
-3. **Merge Queue Agent**
-   - Monitors open PRs and drives them toward merge
-   - Decides priority, parallelization, and strategy
-   - Can spawn new workers to fix CI failures or address review feedback
-   - **Hard constraint**: Never removes or weakens CI checks without human approval
-   - Requests human help via PR labels/comments when needed
-   - Always running but woken periodically by supervisor
+### Daemon
 
-### Controller Daemon
+A single daemon process coordinates everything:
+- Manages state (repos, agents, messages)
+- Routes messages between agents
+- Periodically nudges agents
+- Monitors agent health
+- Handles CLI requests via Unix socket
 
-A single global daemon process that:
-- Orchestrates all repos and agents
-- Runs core loops (health checks, message routing, cleanup)
-- Manages state (agents, worktrees, tmux sessions, messages)
-- Drives the supervisor agents with notifications
-- Supervisor agents provide intelligence and decision-making
-
-**Daemon ↔ Supervisor relationship:**
-- Daemon informs supervisor of events (messages, agent status, etc.)
-- Supervisor instructs daemon on actions to take
-- Users interact with supervisor via tmux to influence daemon behavior
-
-## System Architecture
-
-### Directory Structure
+## Architecture
 
 ```
-$HOME/.multiclaude/
+┌──────────────────────────────────────────────────────────────────┐
+│                         multiclaude daemon                        │
+│                                                                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │ Health Loop │  │ Message Loop│  │ Nudge Loop  │              │
+│  │  (2 min)    │  │   (2 min)   │  │  (2 min)    │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                     State Manager                           │ │
+│  │  repos, agents, messages, PIDs, worktrees                   │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                    Unix Socket Server                       │ │
+│  │  CLI commands: init, work, list, send-message, etc.        │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────┘
+              │                    │                    │
+              ▼                    ▼                    ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    tmux: mc-<repo>                          │
+    │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+    │  │supervisor│  │merge-queue│  │worker-1  │  │worker-2  │    │
+    │  │(Claude)  │  │(Claude)   │  │(Claude)  │  │(Claude)  │    │
+    │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘    │
+    └───────┼─────────────┼────────────┼────────────┼─────────────┘
+            │             │            │            │
+            ▼             ▼            ▼            ▼
+    ┌─────────────────────────────────────────────────────────────┐
+    │                    Git Worktrees                            │
+    │  ~/.multiclaude/wts/<repo>/                                 │
+    │    supervisor/  merge-queue/  worker-1/  worker-2/          │
+    └─────────────────────────────────────────────────────────────┘
+```
+
+## Directory Structure
+
+```
+~/.multiclaude/
 ├── daemon.pid              # Daemon process ID
-├── daemon.sock             # Unix socket for CLI communication
-├── daemon.log              # Daemon logs
-├── state.json              # Persisted daemon state
+├── daemon.sock             # Unix socket for CLI
+├── daemon.log              # Daemon activity log
+├── state.json              # Persisted state
+├── prompts/                # Generated prompt files
+│   └── <repo>-<agent>.md
 ├── repos/                  # Cloned repositories
-│   └── <repo-name>/        # Main repo clone
+│   └── <repo>/             # Main clone (bare or regular)
 ├── wts/                    # Git worktrees
-│   └── <repo-name>/
-│       ├── supervisor/     # Supervisor worktree
-│       ├── merge-queue/    # Merge queue worktree
-│       └── <worker-name>/  # Worker worktrees
+│   └── <repo>/
+│       ├── supervisor/
+│       ├── merge-queue/
+│       └── <worker-name>/
 └── messages/               # Inter-agent messages
-    └── <repo-name>/
-        └── <agent-name>/   # Messages for specific agent
-            └── *.json      # Message files
+    └── <repo>/
+        └── <agent>/
+            └── <msg-id>.json
 ```
 
-### State Management
+## State Model
 
-**State Storage:**
-- Primary: In-memory state in daemon process
-- Backup: `state.json` synced to disk after every change and at shutdown
-- Format: JSON
+State is stored in memory and persisted to `state.json`:
 
-**State Contents:**
 ```json
 {
   "repos": {
     "my-repo": {
       "github_url": "https://github.com/org/my-repo",
-      "tmux_session": "multiclaude-my-repo",
+      "local_path": "/Users/user/.multiclaude/repos/my-repo",
+      "tmux_session": "mc-my-repo",
       "agents": {
         "supervisor": {
           "type": "supervisor",
-          "worktree_path": "/Users/user/.multiclaude/wts/my-repo/supervisor",
+          "worktree_path": "...",
           "tmux_window": "supervisor",
-          "session_id": "550e8400-...",
+          "session_id": "550e8400-e29b-41d4-a716-446655440000",
           "pid": 12345,
-          "created_at": "2026-01-18T10:00:00Z",
-          "last_nudge": "2026-01-18T10:30:00Z"
-        },
-        "merge-queue": {
-          "type": "merge-queue",
-          "worktree_path": "/Users/user/.multiclaude/wts/my-repo/merge-queue",
-          "tmux_window": "merge-queue",
-          "session_id": "660e8400-...",
-          "pid": 12346,
           "created_at": "2026-01-18T10:00:00Z",
           "last_nudge": "2026-01-18T10:30:00Z"
         },
         "happy-platypus": {
           "type": "worker",
-          "worktree_path": "/Users/user/.multiclaude/wts/my-repo/happy-platypus",
+          "task": "Add authentication tests",
+          "worktree_path": "...",
           "tmux_window": "happy-platypus",
-          "session_id": "770e8400-...",
+          "session_id": "...",
           "pid": 12347,
-          "task": "Fix authentication bug in login flow",
-          "created_at": "2026-01-18T10:15:00Z",
-          "last_nudge": "2026-01-18T10:30:00Z",
+          "created_at": "...",
           "ready_for_cleanup": false
         }
       }
@@ -131,701 +148,206 @@ $HOME/.multiclaude/
 }
 ```
 
-**Recovery:**
-- On daemon restart, load `state.json`
-- Verify tmux sessions/windows still exist
-- Check if Claude processes are still running (via PID)
-- Clean up orphaned resources
-- Warn about any inconsistencies
+## Daemon Loops
 
-### Daemon Implementation
+**Health Check Loop (every 2 minutes)**
+- Verify tmux windows exist
+- Check Claude process PIDs are alive
+- Mark dead agents for cleanup
+- Remove orphaned resources
 
-**Technology:** Go with PID file management
+**Message Router Loop (every 2 minutes)**
+- Scan `messages/` for pending messages
+- Deliver via `tmux send-keys`
+- Update message status
 
-**Core Loops:**
+**Nudge Loop (every 2 minutes)**
+- Send status check to agents that haven't been active
+- Exponential backoff to avoid spam
+- Wake supervisor and merge-queue periodically
 
-1. **Health Check Loop** (every 5 minutes)
-   - Check if agents are still alive (PID exists, tmux window exists)
-   - Mark dead agents for cleanup
-   - Clean up orphaned worktrees and tmux windows
+## Message System
 
-2. **Nudge Loop** (every 10 minutes per agent)
-   - Send status check messages to agents via `tmux send-keys`
-   - Track last nudge time to avoid spam
-   - Adjust cadence based on agent activity
-
-3. **Message Router Loop** (event-driven)
-   - Watch `messages/` directory for new message files
-   - Route messages to recipients via `tmux send-keys`
-   - Track message delivery state (pending → delivered → acked → deleted)
-
-4. **Supervisor Wake Loop** (every 15 minutes)
-   - Wake merge queue agent to check PRs
-   - Wake supervisor to check on workers
-
-**Communication:**
-- CLI commands → Daemon: Unix socket at `~/.multiclaude/daemon.sock`
-- Protocol: JSON over socket
-- Daemon → Agents: `tmux send-keys` to inject messages into stdin
-
-**Logging:**
-- All daemon activity logged to `~/.multiclaude/daemon.log`
-- Includes: agent lifecycle, message routing, errors, cleanup actions
-
-## Message Passing
-
-### Message CLI Commands
-
-Agents communicate via CLI commands that handle filesystem and notifications:
-
-```bash
-# Send message (writes to FS, notifies daemon)
-multiclaude agent send-message <recipient> <message>
-multiclaude agent send-message --all <message>
-multiclaude agent send-message recipient1,recipient2 <message>
-
-# Read messages
-multiclaude agent list-messages        # Show unread messages
-multiclaude agent read-message <id>    # Read specific message
-
-# Acknowledge message (marks as read, eventually deleted)
-multiclaude agent ack-message <id>
-```
-
-### Message Format
-
-Messages stored as JSON files in `~/.multiclaude/messages/<repo>/<agent>/<message-id>.json`:
+Agents communicate via JSON files in `~/.multiclaude/messages/<repo>/<agent>/`:
 
 ```json
 {
-  "id": "msg-123e4567-e89b",
+  "id": "msg-abc123",
   "from": "supervisor",
   "to": "happy-platypus",
   "timestamp": "2026-01-18T10:30:00Z",
-  "body": "How's the authentication fix going? Need any help?",
-  "status": "delivered",
-  "acked_at": null
+  "body": "How's the authentication work going?",
+  "status": "pending"
 }
 ```
 
-**Message Lifecycle:**
-1. `pending` - Written to filesystem, daemon not yet notified
-2. `delivered` - Daemon notified, message sent to agent via tmux
-3. `read` - Agent has read the message
-4. `acked` - Agent has acknowledged the message
-5. *deleted* - Removed from filesystem after ack (eventually)
+**Status progression:** `pending` → `delivered` → `read` → `acked` → deleted
 
-**Body Format:** Markdown text, injected into agent's stdin
+**Delivery:** Daemon uses `tmux send-keys -t session:window "message" C-m` to inject messages into the agent's stdin.
 
-### Message Delivery
+## CLI Protocol
 
-When daemon delivers a message:
-```bash
-# Daemon executes:
-tmux send-keys -t session:window "Message from supervisor: How's it going?" C-m
+CLI communicates with daemon via Unix socket at `~/.multiclaude/daemon.sock`.
+
+**Request format:**
+```json
+{
+  "command": "add_agent",
+  "args": {
+    "repo": "my-repo",
+    "name": "happy-platypus",
+    "type": "worker",
+    "task": "Add tests"
+  }
+}
 ```
 
-Agent role prompts instruct them to:
-- Read messages when they appear
-- Acknowledge with `multiclaude agent ack-message <id>` after processing
-- Respond via `multiclaude agent send-message` if needed
+**Response format:**
+```json
+{
+  "success": true,
+  "data": { ... },
+  "error": ""
+}
+```
 
 ## Agent Lifecycle
 
 ### Repository Initialization
 
-Command: `multiclaude init <github-url> [path] [name]`
+`multiclaude init <github-url>`
 
-**Sequence:**
-1. Check if daemon is running (fail if not)
-2. Generate repo name from URL if not provided
-3. Check if repo already exists (error if it does)
-4. Clone repo to `~/.multiclaude/repos/<repo-name>`
-5. Create tmux session named `multiclaude-<repo-name>`
-6. Create supervisor agent:
-   - Worktree at `~/.multiclaude/wts/<repo-name>/supervisor` from main
-   - tmux window named "supervisor"
-   - Start Claude Code with supervisor role prompt
-7. Create merge queue agent:
-   - Worktree at `~/.multiclaude/wts/<repo-name>/merge-queue` from main
-   - tmux window named "merge-queue"
-   - Start Claude Code with merge queue role prompt
-8. Register repo and agents in daemon state
-9. Output tmux session name for user
+1. Clone repo to `~/.multiclaude/repos/<name>`
+2. Create tmux session `mc-<name>`
+3. Create supervisor worktree and window, start Claude
+4. Create merge-queue worktree and window, start Claude
+5. Register in daemon state
 
 ### Worker Creation
 
-Command: `multiclaude work -t <task> [name-or-url]`
+`multiclaude work "task description"`
 
-**Sequence:**
-1. Detect repo (from current directory or provided name)
-2. Generate worker name (Docker-style) or use provided override
-3. Create worktree from main at `~/.multiclaude/wts/<repo>/<worker-name>`
-4. Create tmux window in repo session named `<worker-name>`
-5. Start Claude Code in interactive mode:
-   ```bash
-   claude --session-id "<worker-id>" \
-     --allowedTools "Bash,Read,Write,Edit,Grep,Glob"
-   ```
-6. Load worker role prompt from `.multiclaude/WORKER.md` if exists
-7. Send initial task via tmux send-keys:
-   ```bash
-   tmux send-keys -t session:worker-name "Task: <task>" C-m
-   ```
-8. Register worker in daemon state
-9. Output worker name and how to attach
-
-**With Branch Flag:**
-```bash
-multiclaude work -t "Fix review comments" --branch my-feature-branch
-```
-Creates worktree from specified branch instead of main.
+1. Generate Docker-style name
+2. Create worktree from main (or `--branch`)
+3. Create tmux window
+4. Start Claude with worker prompt and task
+5. Register in daemon state
 
 ### Worker Completion
 
-When worker finishes:
-1. Worker creates PR using `gh pr create`
-2. Worker signals completion: `multiclaude agent complete`
-3. Daemon marks worker as `ready_for_cleanup: true`
-4. Daemon cleanup loop eventually:
-   - Checks if PR exists and is tracked
-   - Removes tmux window
-   - Removes worktree: `git worktree remove <path>`
-   - Warns if uncommitted/unmerged work exists
-   - Updates state
+1. Worker creates PR via `gh pr create`
+2. Worker runs `multiclaude agent complete`
+3. Daemon marks `ready_for_cleanup: true`
+4. Daemon cleans up worktree and tmux window
 
-### Worker Cleanup Command
+### Worker Removal
 
-Command: `multiclaude work rm <name>`
+`multiclaude work rm <name>`
 
-**Behavior:**
-- Checks for uncommitted changes (warns if found)
-- Checks for unpushed commits (warns if found)
-- Checks if PR exists but not merged (warns if found)
-- Removes tmux window
-- Removes worktree
-- Updates daemon state
+1. Check for uncommitted changes (warn if found)
+2. Check for unpushed commits (warn if found)
+3. Remove tmux window
+4. Remove git worktree
+5. Update state
 
-### Listing Workers
+## Claude Integration
 
-Command: `multiclaude work list`
-
-**Output:**
-```
-Active workers for my-repo:
-
-  happy-platypus    Fix authentication bug             10m ago
-  clever-elephant   Add dark mode toggle               25m ago
-
-Attach with: multiclaude attach <name>
-Or: tmux attach -t multiclaude-my-repo:<name>
-```
-
-## Role-Specific Prompts
-
-### System Prompt Files
-
-Repositories can include optional configuration in `.multiclaude/`:
-
-- **SUPERVISOR.md** - Additional instructions for supervisor agent
-- **REVIEWER.md** - Instructions for merge queue agent
-- **WORKER.md** - Instructions for worker agents
-
-**Loading:**
-- Checked at agent startup
-- If present, appended to agent's system prompt via `--append-system-prompt-file`
-- If absent, agent uses default role prompt
-
-### Default Role Prompts
-
-**Supervisor (built-in):**
-```markdown
-You are the supervisor agent for this repository. Your responsibilities:
-
-- Monitor all worker agents and the merge queue agent
-- Nudge agents when they seem stuck or need guidance
-- Answer questions from the controller daemon about agent status
-- When humans ask "what's everyone up to?", report on all active agents
-- Keep your worktree synced with the main branch
-
-You can communicate with agents using:
-- multiclaude agent send-message <agent> <message>
-- multiclaude agent list-messages
-- multiclaude agent ack-message <id>
-
-You work in coordination with the controller daemon, which handles
-routing and scheduling. Ask humans for guidance when uncertain.
-```
-
-**Worker (built-in):**
-```markdown
-You are a worker agent assigned to a specific task. Your responsibilities:
-
-- Complete the task you've been assigned
-- Create a PR when your work is ready
-- Signal completion with: multiclaude agent complete
-- Communicate with the supervisor if you need help
-- Acknowledge messages with: multiclaude agent ack-message <id>
-
-Your work starts from the main branch in an isolated worktree.
-When you create a PR, use the branch name: multiclaude/<your-agent-name>
-
-After creating your PR, signal completion and wait for cleanup.
-```
-
-**Merge Queue (built-in):**
-```markdown
-You are the merge queue agent for this repository. Your responsibilities:
-
-- Monitor all open PRs created by multiclaude workers
-- Decide the best strategy to move PRs toward merge
-- Prioritize which PRs to work on first
-- Spawn new workers to fix CI failures or address review feedback
-- Merge PRs when CI is green and conditions are met
-
-CRITICAL CONSTRAINT: Never remove or weaken CI checks without explicit
-human approval. If you need to bypass checks, request human assistance
-via PR comments and labels.
-
-Use these commands:
-- gh pr list --label multiclaude
-- gh pr status
-- gh pr checks <pr-number>
-- multiclaude work -t "Fix CI for PR #123" --branch <pr-branch>
-
-Check .multiclaude/REVIEWER.md for repository-specific merge criteria.
-```
-
-## tmux Session Management
-
-### Session Structure
-
-Each repository has one tmux session:
-
-**Session name:** `multiclaude-<repo-name>`
-
-**Window structure:**
-- Window 0: `supervisor` - Supervisor agent
-- Window 1: `merge-queue` - Merge queue agent
-- Window 2+: `<worker-name>` - Worker agents (dynamic)
-
-**Pane structure:**
-- Single pane per window (users can split if they attach)
-- Just Claude Code running in each pane
-
-### Attaching to Agents
-
-Command: `multiclaude attach <agent-name> [--read-only]`
-
-**Behavior:**
-- Resolves agent name to tmux session:window
-- Attaches to tmux window
-- With `--read-only`: uses `tmux attach -r` for monitoring without interaction
-
-**Manual attach:**
-```bash
-# Interactive
-tmux attach -t multiclaude-my-repo:happy-platypus
-
-# Read-only
-tmux attach -t multiclaude-my-repo:happy-platypus -r
-```
-
-## GitHub Integration
-
-### Authentication
-
-Uses `gh` CLI for all GitHub operations.
-
-**Prerequisite:** Users must authenticate `gh` before using multiclaude:
-```bash
-gh auth login
-```
-
-**Verification:** Daemon checks on startup:
-```bash
-gh auth status
-```
-
-### PR Creation
-
-Workers create PRs using:
-```bash
-gh pr create --title "Fix: authentication bug" \
-  --body "Fixes issue #123..." \
-  --label "multiclaude" \
-  --head "multiclaude/happy-platypus"
-```
-
-**Branch naming:** `multiclaude/<worker-name>`
-
-**Labels:** All multiclaude PRs tagged with `multiclaude` label for filtering
-
-### PR Monitoring
-
-Merge queue agent uses:
-```bash
-# List multiclaude PRs
-gh pr list --label multiclaude
-
-# Check specific PR
-gh pr status <pr-number>
-gh pr checks <pr-number>
-
-# Watch for CI completion
-gh pr checks <pr-number> --watch
-```
-
-## Claude Code Integration
-
-### Agent Startup
-
-Each agent starts Claude Code in interactive mode:
+### Startup Command
 
 ```bash
-# In tmux window, start Claude
-claude --session-id "<agent-id>" \
-  --allowedTools "Bash,Read,Write,Edit,Grep,Glob" \
-  --append-system-prompt-file .multiclaude/WORKER.md  # if exists
+claude --session-id "<uuid>" \
+  --append-system-prompt-file "<prompt-file>" \
+  --dangerously-skip-permissions
 ```
 
-**Session tracking:**
-- `--session-id` persists context across restarts
-- If Claude crashes, daemon restarts with same session ID
+- `--session-id` enables context persistence across restarts
+- `--append-system-prompt-file` loads role-specific instructions
+- `--dangerously-skip-permissions` enables autonomous operation
 
-**Tool allowlist:**
-- Pre-approved tools to avoid permission prompts
-- Enables autonomous operation
-- Can be customized per agent type
+### Role Prompts
 
-### Message Delivery
+Default prompts are embedded in the binary. Repositories can extend them with:
+- `.multiclaude/SUPERVISOR.md`
+- `.multiclaude/WORKER.md`
+- `.multiclaude/REVIEWER.md`
 
-Daemon sends messages via tmux:
-```bash
-tmux send-keys -t session:window "Message from supervisor: How's it going?" C-m
-```
+### Hooks Configuration
 
-Claude processes message from stdin and responds in the tmux window.
-
-### Health Monitoring
-
-Daemon monitors:
-- **Process PID** - Check if Claude process is alive
-- **tmux window** - Verify window still exists
-- **Session activity** - Track last interaction time
-
-On crash:
-- Log error to daemon.log
-- Mark agent for cleanup
-- Optionally restart agent with same session ID
-
-### Optional Hooks
-
-If repository includes `.multiclaude/hooks.json`, copy to worktree:
-
-```bash
-cp .multiclaude/hooks.json <worktree>/.claude/settings.json
-```
-
-**Example hooks configuration:**
-```json
-{
-  "hooks": {
-    "SessionStart": [{
-      "hooks": [{
-        "type": "command",
-        "command": "multiclaude agent session-start"
-      }]
-    }],
-    "PreToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{
-        "type": "command",
-        "command": "multiclaude agent validate-command"
-      }]
-    }],
-    "PostToolUse": [{
-      "matcher": "Write|Edit",
-      "hooks": [{
-        "type": "command",
-        "command": "multiclaude agent log-change"
-      }]
-    }]
-  }
-}
-```
-
-**Fallback without hooks:**
-- Agents manually run `multiclaude agent` commands
-- Daemon monitors via git status and tmux activity
-- No special interception of Claude actions
-
-## CLI Commands
-
-### Daemon Management
-
-```bash
-# Start daemon
-multiclaude start
-multiclaude daemon start  # alias
-
-# Stop daemon
-multiclaude daemon stop
-
-# Stop daemon and kill all tmux sessions
-multiclaude stop-all
-multiclaude stop-all --clean  # Also remove state files
-
-# Check status
-multiclaude daemon status
-
-# View logs
-multiclaude daemon logs [--follow]
-```
-
-### Repository Management
-
-```bash
-# Initialize repository
-multiclaude init <github-url> [path] [name]
-
-# List tracked repos
-multiclaude list
-```
-
-### Worker Management
-
-```bash
-# Create worker
-multiclaude work -t <task> [name-or-url]
-multiclaude work -t <task> --branch <branch> [name]
-
-# List workers
-multiclaude work list [repo-name]
-
-# Remove worker
-multiclaude work rm <worker-name>
-```
-
-### Agent Interaction
-
-```bash
-# Attach to agent
-multiclaude attach <agent-name> [--read-only]
-
-# Agent commands (run from within Claude)
-multiclaude agent send-message <recipient> <message>
-multiclaude agent send-message --all <message>
-multiclaude agent list-messages
-multiclaude agent read-message <id>
-multiclaude agent ack-message <id>
-multiclaude agent complete  # Signal worker completion
-```
-
-### Maintenance
-
-```bash
-# Clean up orphaned resources
-multiclaude cleanup [--dry-run]
-
-# Repair state after crash
-multiclaude repair
-```
+If `.multiclaude/hooks.json` exists, it's copied to the worktree's `.claude/settings.json` for Claude Code hooks integration.
 
 ## Error Handling
 
-### Daemon Not Running
-
-Commands that require daemon fail with:
+**Daemon not running:**
 ```
 Error: multiclaude daemon is not running
 Start it with: multiclaude start
 ```
 
-### Authentication Failures
-
-On daemon startup, check `gh auth status`:
-```
-Error: GitHub CLI not authenticated
-Authenticate with: gh auth login
-```
-
-### Resource Cleanup
-
-Warnings when removing workers with uncommitted work:
+**Uncommitted work on cleanup:**
 ```
 Warning: Worker 'happy-platypus' has uncommitted changes:
   M src/auth.ts
-  ?? src/auth.test.ts
-
 Continue with cleanup? [y/N]
 ```
 
-### Orphaned Resources
-
-`multiclaude cleanup` detects and removes:
-- Worktrees without corresponding tmux windows
-- tmux windows without corresponding worktrees
-- Message files for non-existent agents
-- State entries for dead agents
-
-## Future Considerations
-
-### Not in v1.0
-
-These features are explicitly out of scope for the initial implementation:
-
-- Web dashboard for monitoring agents
-- Webhook-based PR notifications (polling only)
-- Cross-repo coordination
-- Agent-to-agent direct communication (must go through supervisor)
-- Automatic agent respawning on crash (manual recovery only)
-- Resource limits (workers, memory, etc.)
-- Multi-user support (single user per daemon)
-- Remote daemon (local only)
-
-### Possible Future Enhancements
-
-- Metrics and analytics (cost tracking, success rates)
-- Agent templates (predefined task types)
-- Integration with issue trackers
-- Automatic branch syncing/rebasing
-- PR review automation
-- Budget controls (API cost limits)
-- Agent performance profiling
+**Agent crash:**
+- Health loop detects dead PID
+- Logs warning to daemon.log
+- Marks agent for potential restart
 
 ## Design Principles
 
-1. **Transparency** - Users can observe all agent activity via tmux
-2. **Simplicity** - Prefer simple solutions over complex abstractions
-3. **Recovery** - System should gracefully handle crashes and orphaned resources
-4. **Autonomy** - Agents operate independently but coordinate when needed
-5. **Human-in-the-loop** - Users can intervene at any time via tmux or supervisor
-6. **Safety** - Never weaken CI or bypass checks without human approval
-7. **Filesystem-as-state** - Leverage git worktrees and tmux for resource management
+1. **Transparency** - All work visible via tmux
+2. **Isolation** - Each agent has its own worktree
+3. **Recovery** - State persists, daemon recovers from crashes
+4. **Safety** - CI is sacred, never weakened without human approval
+5. **Simplicity** - Filesystem for messages, tmux for visibility, git for isolation
 
-## Implementation Priorities
+## Golden Rules
 
-### Phase 1: Core Infrastructure & Libraries ✅ COMPLETE
-Build and thoroughly test the foundational components:
-- [x] Daemon process with PID file management
-- [x] Unix socket communication (request/response protocol)
-- [x] State management (JSON persistence, sync, recovery)
-- [x] tmux library (session/window creation, management, send-keys)
-- [x] Worktree library (create, remove, cleanup orphaned)
-- [x] Message filesystem operations (write, read, list, delete)
-- [x] CLI framework (command parsing, daemon communication)
-- [x] Error handling and logging infrastructure
-- [x] Comprehensive unit and integration tests for all libraries with real tmux sessions and FS operations.
+These rules are embedded in agent prompts:
 
-**Goal:** Rock-solid foundation with well-tested primitives.
-**Status:** ✅ COMPLETE - All libraries implemented with comprehensive tests passing (67 tests).
+1. **If CI passes, the code can go in.** Never reduce or weaken CI without explicit human approval.
 
-### Phase 2: Running Daemon & Infrastructure ✅ COMPLETE
-Implement the actual daemon process and wire up infrastructure WITHOUT Claude yet:
+2. **Forward progress trumps all.** Any incremental progress is good. A reviewable PR is progress. The only failure is an agent that doesn't move forward at all.
 
-**Daemon Process:**
-- [x] Implement daemon main loop and goroutines
-- [x] Daemon start/stop commands (check PID, claim, daemonize)
-- [x] Daemon status command (read PID, check if running)
-- [x] Daemon logs command (tail daemon.log)
-- [x] State loading on startup and persistence on changes
-- [x] Graceful shutdown (cleanup, save state)
+## Package Structure
 
-**Core Daemon Loops:**
-- [x] Health check loop (every 2 min) - verify tmux windows/PIDs exist
-- [x] Message router loop (every 2 min) - watch messages dir, deliver via tmux send-keys
-- [x] Cleanup loop - remove orphaned tmux windows, worktrees, dead agents from state
-- [x] Periodic wake/nudge mechanism (every 2 min with backoff)
+```
+cmd/multiclaude/        # CLI entry point
+internal/
+  cli/                  # Command routing
+  daemon/               # Daemon process and loops
+  logging/              # Structured logging
+  messages/             # Message filesystem operations
+  names/                # Docker-style name generation
+  prompts/              # Role-specific prompts
+  socket/               # Unix socket client/server
+  state/                # JSON state persistence
+  tmux/                 # tmux session management
+  worktree/             # Git worktree operations
+pkg/
+  config/               # Path configuration
+```
 
-**Repository Management:**
-- [x] `multiclaude init <github-url>` - clone repo, create tmux session
-- [x] Create supervisor tmux window (run plain shell for now, not Claude)
-- [x] Create merge-queue tmux window (run plain shell for now)
-- [x] Register repo and agents in state
-- [x] `multiclaude list` - show tracked repos
+## Implementation Status
 
-**Worker Management:**
-- [x] `multiclaude work -t <task>` - create worktree, tmux window (plain shell)
-- [x] `multiclaude work -t <task> --branch <branch>` - create from specific branch
-- [x] `multiclaude work list` - show active workers
-- [x] `multiclaude work rm <name>` - cleanup worktree and tmux window
-- [x] Detect uncommitted/unpushed changes on cleanup (warn user)
-- [x] Docker-style worker name generation (e.g., "happy-platypus")
+- **Phase 1: Core Infrastructure** - Complete
+- **Phase 2: Daemon & Management** - Complete
+- **Phase 3: Claude Integration** - Complete
+- **Phase 4: Polish & Refinement** - In Progress
 
-**Agent Communication:**
-- [x] Wire up `multiclaude agent send-message` to write message files
-- [x] Wire up `multiclaude agent list-messages` to read from messages dir
-- [x] Wire up `multiclaude agent read-message` to read specific messages
-- [x] Wire up `multiclaude agent ack-message` to mark messages acknowledged
-- [x] Daemon delivers messages to tmux windows via send-keys with emoji indicators
-- [x] `multiclaude agent complete` - signal worker completion
+## Future Considerations
 
-**Testing & Validation:**
-- [x] `multiclaude attach <agent-name>` - attach to tmux window (with --read-only)
-- [x] `multiclaude cleanup [--dry-run]` - manual cleanup trigger
-- [x] `multiclaude repair` - repair state after crashes
-- [x] Test daemon can track multiple repos
-- [x] Test worker lifecycle (create, run commands, cleanup)
-- [x] Test message passing between windows
-- [x] Test state persistence and recovery after daemon restart
-- [x] Test orphaned resource cleanup
+Not in current scope:
+- Web dashboard
+- Cross-repo coordination
+- Multi-user support
+- Remote daemon
+- Automatic agent respawning
 
-**Testing Results:**
-- ✅ 73 passing unit tests (11 daemon tests, 10 message tests, 6 socket tests, 12 state tests, 14 tmux tests, 15 worktree tests, 5 config tests)
-- ✅ 2 comprehensive e2e integration tests
-- ✅ All Phase 1 tests still passing
-- ✅ Code compiles without errors
-- ✅ Real tmux and git operations tested
-
-**Goal:** Fully functional daemon that tracks repos, manages tmux sessions/worktrees, and routes messages - all running plain shells in tmux windows. This proves the infrastructure works before adding Claude.
-**Status:** ✅ COMPLETE - All daemon infrastructure operational with comprehensive test coverage.
-
-### Phase 3: Claude Code Integration ✅ IN PROGRESS
-Replace plain shells with Claude Code instances:
-
-**Claude in tmux:**
-- [x] Start Claude Code in tmux windows with session tracking
-- [x] Pass role-specific prompts via `--append-system-prompt-file`
-- [x] Monitor Claude process health (PID tracking)
-- [ ] Handle Claude crashes and restarts (reuse session ID) - Future enhancement
-- [x] Optional hooks configuration loading (.multiclaude/hooks.json)
-
-**Role-Specific Prompts:**
-- [x] Default supervisor prompt (built-in)
-- [x] Default worker prompt (built-in)
-- [x] Default merge queue prompt (built-in)
-- [x] Load custom prompts from .multiclaude/ directory
-- [x] Pass task description to workers on startup
-
-**Agent Intelligence:**
-- [ ] Supervisor monitoring and coordination behavior
-- [ ] Worker task execution and PR creation behavior
-- [ ] Merge queue PR management and CI coordination
-- [x] Agent completion signaling (`multiclaude agent complete`) - Already implemented in Phase 2
-- [ ] GitHub integration (gh CLI for PRs)
-
-**Status:** ✅ FUNCTIONALLY COMPLETE - All core Claude integration tasks done:
-- Claude starts in all agent types with proper UUIDs
-- Prompts loaded from embedded markdown files
-- PIDs tracked and monitored by health check loop
-- Hooks configuration supported
-- Autonomous operation with --dangerously-skip-permissions
-
-Remaining items are enhancements:
-- Auto-restart on crash (future nice-to-have)
-- Agent intelligence validated through real-world use
-
-**Goal:** Autonomous Claude agents working collaboratively on repositories.
-
-### Phase 4: Polish & Refinement
-- [ ] Enhanced error messages and user guidance
-- [ ] Cleanup and repair commands
-- [ ] Better attach command with read-only mode
-- [ ] Rich list commands with status information
-- [ ] Documentation and usage examples
-- [ ] Edge case handling and recovery scenarios
-- [ ] Performance optimization
-- [ ] GitHub auth verification on startup
-
-**Goal:** Production-ready tool with excellent UX.
+Possible enhancements:
+- Cost tracking
+- Agent templates
+- Issue tracker integration
+- Budget controls

@@ -1,160 +1,189 @@
 # multiclaude
 
-A repo-centric orchestrator for managing multiple autonomous Claude Code instances working collaboratively on GitHub repositories.
+A lightweight orchestrator for running multiple Claude Code agents on GitHub repositories.
 
-## Project Status
+multiclaude spawns and coordinates autonomous Claude Code instances that work together on your codebase. Each agent runs in its own tmux window with an isolated git worktree, making all work observable and interruptible at any time.
 
-**Phase 1: COMPLETE ✅**
-
-All core infrastructure libraries have been implemented and thoroughly tested with **67 comprehensive test cases**, including real tmux and git integration tests.
-
-See [SPEC.md](./SPEC.md) for the complete architecture specification and implementation roadmap.
-
-## Usage
-
-### multiclaude start
-
-Starts the controller daemon.
-
-### multiclaude init \<github url\> [path] [name]
-
-* Sets up tracking for that github repo.
-* Clones the repo into $HOME/.multiclaude
-* Sets up a tmux session for agents
-* Sets up a supervisor agent in that tmux session
-
-### multiclaude work -t \<task\> [name or github url]
-
-Detects the repo from the current directory if you're inside it, or uses the provided name/URL.
-Creates a worker agent with its own worktree and tmux window in the repo session, with claude open.
-
-### multiclaude work list
-
-Lists all open work agents and allows the user to attach.
-
-### multiclaude work rm \<name\>
-
-Cleans up the tmux window and worktree. Warns if there is uncommitted/unmerged work not present on the remote.
-
-## State
-
-All state is stored in $HOME/.multiclaude
-
-Structure:
-
-### repos/<repo>
-All git repos are stored here
-
-### wts/\<repo\>/
-Worktrees are stored here
-
-### messages/\<repo\>/\<agent\>
-
-Messages for an agent are stored here
-
-## Agents
-
-There are three kinds of agents:
-
-* The repo supervisor agent
-* Worker agents.
-* The merge queue agent
-
-All agents are controlled via the supervisor daemon.
-
-Agents can pass messages to each other via the messages directory.
-The supervisor agent should be notified via stdin anytime a message is sent by any of the workers via the controller daemon.
-The controller daemon notifies workers when they have received a message.
-
-The controller daemon periodically checks in on workers and nudges them along to complete their task.
-
-All tasks are completed when a PR is sent to the remote repo.
-
-The merge queue agent exists to merge items sent as PRs. It can create worker agents to address issues - workers die when they initially send the PR.
-
-## Development Status
-
-### Phase 1: Core Infrastructure - ✅ COMPLETE
-
-All foundational libraries implemented with comprehensive testing:
-
-- **`pkg/config`** - Path configuration and directory management
-- **`internal/daemon`** - PID file management for daemon process control
-- **`internal/state`** - JSON state persistence with atomic saves and recovery
-- **`internal/tmux`** - Complete tmux session/window management (14 integration tests)
-- **`internal/worktree`** - Git worktree operations (15 integration tests)
-- **`internal/messages`** - Message filesystem operations for agent communication
-- **`internal/socket`** - Unix socket client/server for CLI-daemon communication
-- **`internal/logging`** - Structured logging infrastructure
-- **`internal/cli`** - Command routing framework
-
-### Test Coverage
+## Quick Start
 
 ```bash
-$ go test ./...
-# All 67 tests passing across 7 packages
-# Includes real tmux session tests and real git worktree tests
-# No mocking - true end-to-end integration testing
+# Install
+go install github.com/dlorenc/multiclaude/cmd/multiclaude@latest
+
+# Prerequisites: tmux, git, gh (GitHub CLI authenticated)
+
+# Start the daemon
+multiclaude start
+
+# Initialize a repository
+multiclaude init https://github.com/your/repo
+
+# Create a worker to do a task
+multiclaude work "Add unit tests for the auth module"
+
+# Watch agents work
+tmux attach -t mc-repo
 ```
 
-### Key Implementation Details
+## How It Works
 
-- ✅ Real tmux integration testing (creates actual tmux sessions)
-- ✅ Real git worktree integration testing (creates actual git repos)
-- ✅ Symlink-aware path resolution (macOS `/var/folders` compatible)
-- ✅ Atomic state persistence and recovery
-- ✅ Unix socket-based daemon communication
-- ✅ Process lifecycle management with PID tracking
-- ✅ Message queue system with lifecycle tracking
+multiclaude creates a tmux session for each repository with three types of agents:
 
-### Phase 2: Running Daemon & Infrastructure (NEXT)
+1. **Supervisor** - Coordinates all agents, answers status questions, nudges stuck workers
+2. **Workers** - Execute specific tasks, create PRs when done
+3. **Merge Queue** - Monitors PRs, merges when CI passes, spawns fixup workers as needed
 
-Implement the actual daemon and wire up infrastructure WITHOUT Claude yet:
+Agents communicate via a filesystem-based message system. The daemon routes messages and periodically nudges agents to keep work moving forward.
 
-**Daemon Implementation:**
-- [ ] Daemon main loop with goroutines
-- [ ] Start/stop/status commands
-- [ ] Health check loop (monitor tmux windows/PIDs)
-- [ ] Message router loop (deliver messages via tmux send-keys)
-- [ ] State persistence and recovery
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     tmux session: mc-repo                   │
+├───────────────┬───────────────┬───────────────┬─────────────┤
+│  supervisor   │  merge-queue  │ happy-platypus│ clever-fox  │
+│   (Claude)    │   (Claude)    │   (Claude)    │  (Claude)   │
+│               │               │               │             │
+│ Coordinates   │ Merges PRs    │ Working on    │ Working on  │
+│ all agents    │ when CI green │ task #1       │ task #2     │
+└───────────────┴───────────────┴───────────────┴─────────────┘
+        │                │               │               │
+        └────────────────┴───────────────┴───────────────┘
+                    isolated git worktrees
+```
 
-**Repository & Worker Management:**
-- [ ] `multiclaude init` - clone repo, create tmux session (plain shells)
-- [ ] `multiclaude work` - create worktree + tmux window (plain shells)
-- [ ] `multiclaude work list/rm` - manage workers
-- [ ] `multiclaude attach` - attach to tmux windows
-- [ ] Message passing between windows
+## Commands
 
-**Goal:** Fully functional daemon tracking repos/worktrees/tmux - running plain shells before adding Claude.
+### Daemon
 
-### Phase 3: Claude Code Integration
+```bash
+multiclaude start              # Start the daemon
+multiclaude daemon stop        # Stop the daemon
+multiclaude daemon status      # Show daemon status
+multiclaude daemon logs -f     # Follow daemon logs
+multiclaude stop-all           # Stop everything, kill all tmux sessions
+multiclaude stop-all --clean   # Stop and remove all state files
+```
 
-Replace plain shells with Claude Code:
-- [ ] Start Claude in tmux windows with session tracking
-- [ ] Role-specific prompts (supervisor, worker, merge-queue)
-- [ ] Agent intelligence and coordination
-- [ ] GitHub integration (PR creation/management)
+### Repositories
 
-## Building and Testing
+```bash
+multiclaude init <github-url>              # Initialize repository tracking
+multiclaude init <github-url> [path] [name] # With custom local path or name
+multiclaude list                           # List tracked repositories
+```
+
+### Workers
+
+```bash
+multiclaude work "task description"        # Create worker for task
+multiclaude work "task" --branch feature   # Start from specific branch
+multiclaude work list                      # List active workers
+multiclaude work rm <name>                 # Remove worker (warns if uncommitted work)
+```
+
+### Observing
+
+```bash
+multiclaude attach <agent-name>            # Attach to agent's tmux window
+multiclaude attach <agent-name> --read-only # Observe without interaction
+tmux attach -t mc-<repo>                   # Attach to entire repo session
+```
+
+### Agent Commands (run from within Claude)
+
+```bash
+multiclaude agent send-message <to> "msg"  # Send message to another agent
+multiclaude agent send-message --all "msg" # Broadcast to all agents
+multiclaude agent list-messages            # List incoming messages
+multiclaude agent ack-message <id>         # Acknowledge a message
+multiclaude agent complete                 # Signal task completion (workers)
+```
+
+## Directory Structure
+
+```
+~/.multiclaude/
+├── daemon.pid          # Daemon process ID
+├── daemon.sock         # Unix socket for CLI
+├── daemon.log          # Daemon logs
+├── state.json          # Persisted state
+├── repos/<repo>/       # Cloned repositories
+├── wts/<repo>/         # Git worktrees (supervisor, merge-queue, workers)
+└── messages/<repo>/    # Inter-agent messages
+```
+
+## Repository Configuration
+
+Repositories can include optional configuration in `.multiclaude/`:
+
+```
+.multiclaude/
+├── SUPERVISOR.md   # Additional instructions for supervisor
+├── WORKER.md       # Additional instructions for workers
+├── REVIEWER.md     # Additional instructions for merge queue
+└── hooks.json      # Claude Code hooks configuration
+```
+
+## Design Principles
+
+1. **Observable** - All agent activity visible via tmux. Attach anytime to watch or intervene.
+2. **Isolated** - Each agent works in its own git worktree. No interference between tasks.
+3. **Recoverable** - State persists to disk. Daemon recovers gracefully from crashes.
+4. **Safe** - Agents never weaken CI or bypass checks without human approval.
+5. **Simple** - Minimal abstractions. Filesystem for state, tmux for visibility, git for isolation.
+
+## Golden Rules
+
+Two principles guide all agent behavior:
+
+1. **If CI passes, the code can go in.** CI is the source of truth. Never reduce or weaken CI without explicit human approval.
+
+2. **Forward progress trumps all.** Any incremental progress is good. A reviewable PR is progress. The only failure is an agent that doesn't push the ball forward at all.
+
+## Acknowledgements
+
+### Gastown
+
+multiclaude was developed independently but shares similar goals with [Gastown](https://github.com/steveyegge/gastown), Steve Yegge's multi-agent orchestrator for Claude Code released in January 2026.
+
+**Similarities:**
+- Both are Go-based orchestrators for multiple Claude Code instances
+- Both use tmux for session management and human observability
+- Both use git worktrees for isolated agent workspaces
+- Both coordinate agents working on GitHub repositories
+
+**Key Differences:**
+
+| Aspect | multiclaude | Gastown |
+|--------|-------------|---------|
+| Agent model | 3 roles: supervisor, worker, merge-queue | 7 roles: Mayor, Polecats, Refinery, Witness, Deacon, Dogs, Crew |
+| State persistence | JSON file + filesystem | Git-backed "hooks" for crash recovery |
+| Work tracking | Simple task descriptions | "Beads" framework for structured work units |
+| Communication | Filesystem-based messages | Built on Beads framework |
+| Philosophy | Minimal, Unix-style simplicity | Comprehensive orchestration system |
+| Maturity | Early development | More established, larger feature set |
+
+multiclaude aims to be a simpler, more lightweight alternative. If you need sophisticated orchestration features, work swarming, or built-in crash recovery, Gastown may be a better fit.
+
+## Building
 
 ```bash
 # Build
 go build ./cmd/multiclaude
 
-# Run all tests
+# Run tests
 go test ./...
 
-# Run tests with verbose output
-go test ./... -v
-
-# Run specific package tests
-go test ./internal/tmux -v
-go test ./internal/worktree -v
+# Install locally
+go install ./cmd/multiclaude
 ```
 
-## Prerequisites
+## Requirements
 
 - Go 1.21+
 - tmux
 - git
-- GitHub CLI (`gh`)
+- GitHub CLI (`gh`) authenticated via `gh auth login`
+
+## License
+
+MIT

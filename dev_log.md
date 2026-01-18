@@ -1,251 +1,187 @@
 # Development Log
 
-## 2026-01-18
+## Project Timeline
 
-### Phase 1: Core Infrastructure & Libraries
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | Complete | Core infrastructure & libraries |
+| Phase 2 | Complete | Running daemon & management |
+| Phase 3 | Complete | Claude Code integration |
+| Phase 4 | In Progress | Polish & refinement |
 
-**Session Start**
-- Reviewed SPEC.md architecture
-- Created todo list for Phase 1 tasks
-- Starting implementation of core infrastructure
+---
 
-**Progress**
-- [x] Initialize Go project (go.mod exists)
-- [x] Create project structure (cmd/, internal/, pkg/)
-- [x] Implement daemon with PID management (internal/daemon/pid.go)
-- [x] Implement Unix socket communication (internal/socket/socket.go)
-- [x] Implement state management (internal/state/state.go)
-- [x] Implement tmux library (internal/tmux/tmux.go)
-- [x] Implement worktree library (internal/worktree/worktree.go)
-- [x] Implement message filesystem operations (internal/messages/messages.go)
-- [x] Implement CLI framework (internal/cli/cli.go)
-- [x] Implement error handling/logging (internal/logging/logger.go)
-- [x] Create config package for paths (pkg/config/config.go)
-- [x] Build verification successful
-- [ ] Write comprehensive tests
+## Phase 1: Core Infrastructure
 
-**Completed Libraries:**
+**Goal:** Build rock-solid foundation with well-tested primitives.
+
+**Libraries Implemented:**
 - `pkg/config` - Path configuration and directory management
-- `internal/daemon` - PID file management for daemon process
+- `internal/daemon` - PID file management
 - `internal/state` - JSON state persistence with atomic saves
-- `internal/tmux` - Full tmux session/window/pane management
-- `internal/worktree` - Git worktree operations and cleanup
+- `internal/tmux` - tmux session/window management
+- `internal/worktree` - Git worktree operations
 - `internal/messages` - Message filesystem operations
 - `internal/socket` - Unix socket client/server
-- `internal/logging` - Structured logging to files
-- `internal/cli` - Command routing framework (placeholder implementations)
+- `internal/logging` - Structured logging
+- `internal/cli` - Command routing framework
 
-**Commits:**
-1. a5a4b43 - Add development log for tracking Phase 1 progress
-2. e399ff4 - Add config package for path management
-3. 94fef7e - Add daemon PID file management
-4. e05ff0c - Add state management with JSON persistence
-5. a80e8ed - Add tmux library for session management
-6. 0479613 - Add worktree library for git worktree operations
-7. a942fc7 - Add message filesystem operations
-8. 6d79399 - Add socket communication and logging infrastructure
-9. 69f2b5b - Add CLI framework with command routing
-10. 10fffe5 - Add .gitignore for Go project
-11. 670e222 - Update dev_log with commit history
-12. d4a27bb - Fix unused variable in tmux HasWindow function
-13. d66fa65 - Add comprehensive unit tests for Phase 1 libraries
+**Testing:**
+- 67 tests passing
+- Real tmux integration tests (creates actual sessions)
+- Real git worktree tests (creates actual repos)
+- Symlink-aware path resolution for macOS compatibility
 
-**Test Coverage:**
-- ✅ Config package: Path management, directory creation
-- ✅ Daemon PID: Write/read/claim operations, stale detection
-- ✅ State management: CRUD operations, persistence, atomic saves
-- ✅ Messages: Send/receive, lifecycle management, cleanup
-- ✅ Socket: Client/server communication, multiple requests, errors
-- ✅ Tmux: Session/window management, send-keys, PID tracking (14 tests with real tmux integration)
-- ✅ Worktree: Git worktree operations, cleanup, uncommitted changes detection (15 tests with real git repos)
-- **67 total test functions, all passing**
+**Key Commits:**
+- a5a4b43 - Add development log
+- e399ff4 - Add config package
+- 94fef7e - Add daemon PID management
+- e05ff0c - Add state management
+- a80e8ed - Add tmux library
+- 0479613 - Add worktree library
+- a942fc7 - Add message operations
+- 6d79399 - Add socket and logging
+- 69f2b5b - Add CLI framework
+- d66fa65 - Add comprehensive unit tests
 
-**Commits (continued):**
-14. [commit-id] - Add comprehensive tmux integration tests with real sessions
-15. [commit-id] - Add comprehensive worktree integration tests with real git operations
-16. [commit-id] - Fix symlink path resolution for macOS /var/folders compatibility
+---
 
-**Phase 1 Status: ✅ COMPLETE**
-All core infrastructure libraries fully implemented with comprehensive end-to-end tests.
-Rock-solid foundation achieved with well-tested primitives.
+## Phase 2: Daemon & Management
 
-**Implementation Plan Restructured:**
-The phases have been reorganized to implement the daemon infrastructure BEFORE adding Claude:
-- Phase 2: Running daemon with core loops, repo/worker management (plain shells in tmux)
-- Phase 3: Replace shells with Claude Code instances + agent intelligence
-- Phase 4: Polish and UX refinements
+**Goal:** Fully functional daemon with repo/worker management (plain shells before Claude).
 
-This allows testing the infrastructure independently before adding Claude complexity.
+**Daemon Features:**
+- Main loop with context cancellation
+- Socket server for CLI communication
+- Health check loop (every 2 minutes)
+- Message router loop (every 2 minutes)
+- Wake/nudge loop (every 2 minutes)
+- State persistence and recovery
+- Graceful shutdown
 
-**Next Steps (Phase 2):**
-- Implement daemon main loop and goroutines
-- Implement start/stop/status commands
-- Wire up health check loop (monitor tmux/PIDs)
-- Wire up message router loop (deliver via send-keys)
-- Implement `multiclaude init` (clone, create tmux session with plain shells)
-- Implement `multiclaude work` (create worktree + tmux window with plain shell)
-- Test full workflow: init repo → create workers → message passing → cleanup
+**Commands Implemented:**
+- `multiclaude start/stop/status/logs` - Daemon control
+- `multiclaude init <github-url>` - Repository initialization
+- `multiclaude work <task>` - Worker creation
+- `multiclaude work list/rm` - Worker management
+- `multiclaude list` - List tracked repos
+- `multiclaude agent send-message/list-messages/ack-message` - Messaging
+- `multiclaude agent complete` - Signal completion
 
-### Phase 2: Running Daemon & Infrastructure
+**Testing:**
+- 73+ unit tests passing
+- 2 comprehensive e2e integration tests
+- Real tmux and git operations tested
 
-**Progress:**
-- [x] Create daemon process package (internal/daemon/daemon.go)
-  - Main daemon loop with context cancellation
-  - Socket server for CLI communication
-  - Health check loop (every 2 minutes)
-  - Message router loop (every 2 minutes)
-  - Wake/nudge loop (every 2 minutes)
-  - Request handler for socket commands (ping, status, add_repo, add_agent, etc.)
-- [x] Wire up daemon start/stop/status/logs commands in CLI
-  - `multiclaude start` or `multiclaude daemon start` - starts daemon in background
-  - `multiclaude daemon stop` - sends stop command via socket
-  - `multiclaude daemon status` - shows daemon status (repos, agents, PID)
-  - `multiclaude daemon logs [-f] [-n N]` - view daemon logs
-  - Internal `_run` command for foreground daemon execution
-- [x] Implement 'multiclaude init' command
-  - Clones GitHub repository to `~/.multiclaude/repos/<name>`
-  - Creates tmux session `mc-<name>` with supervisor and merge-queue windows
-  - Registers repo and agents with daemon via socket
-  - Plain shells in tmux windows (Phase 2 approach)
-- [x] Implement 'multiclaude work' commands
-  - `multiclaude work <task>` - creates worker with worktree and tmux window
-  - `multiclaude work list` - lists workers in current/specified repo
-  - `multiclaude work rm <name>` - removes worker (worktree, tmux window, state)
-  - Auto-generates worker names, creates `work/<name>` branches
-  - Registers workers with daemon
-- [x] Implement list repos command
-  - `multiclaude list` - shows all tracked repositories
-- [x] Implement agent message commands
-  - `multiclaude agent send-message <to> <msg>` - send message to another agent
-  - `multiclaude agent list-messages` - list all messages for current agent
-  - `multiclaude agent read-message <id>` - read and mark message as read
-  - `multiclaude agent ack-message <id>` - acknowledge a message
-  - Auto-infers agent context from current directory/tmux window
-  - Messages stored in filesystem under `~/.multiclaude/messages/<repo>/<agent>/`
-- [ ] Test end-to-end workflow
+---
 
-**Phase 2 Status: Infrastructure Complete!**
-All core daemon and CLI infrastructure is implemented:
-- ✅ Daemon with health check, message routing, and wake loops
-- ✅ Repository initialization (clone, tmux session, supervisor/merge-queue agents)
-- ✅ Worker creation/management (worktrees, tmux windows, state tracking)
-- ✅ Agent messaging system (send, list, read, ack)
-- ✅ All communication via Unix socket to daemon
+## Phase 3: Claude Integration
 
-Ready for Phase 3: Replace plain shells with Claude Code instances.
+**Goal:** Replace plain shells with autonomous Claude Code instances.
 
-### Phase 3: Claude Code Integration
+**Features Implemented:**
+- Claude startup in tmux with UUID session IDs
+- Role-specific prompts (supervisor, worker, merge-queue)
+- Embedded markdown prompts via `//go:embed`
+- Custom prompt loading from `.multiclaude/` directory
+- Hooks configuration support
+- PID tracking and health monitoring
+- Autonomous operation (`--dangerously-skip-permissions`)
+- Initial task messages to workers
 
-**Goal:** Replace plain shells with Claude Code instances running in tmux
+**Key Commits:**
+- f76458d - Add prompts package
+- ef4755e - Add Claude startup integration
+- 7549680 - Add hooks configuration
+- 8e10cb2 - Add stop-all command
+- 75f5701 - Fix UUID v4 format
+- d7b5846 - Add skip-permissions flag
+- 694f659 - Convert to embedded markdown prompts
+- e40594d - Add PID tracking
+- 33bf5f3 - Mark Phase 3 complete
+- 50536a5 - Fix critical bugs and improve agent communication
 
-**Starting Tasks:**
-- [ ] Create role-specific prompt files (supervisor, worker, merge-queue)
-- [ ] Update CLI to start Claude instead of shells in tmux windows
-- [ ] Add session ID tracking and pass to Claude
-- [ ] Support loading custom prompts from .multiclaude/ directory
-- [ ] Add hooks.json configuration support
-- [ ] Test Claude integration end-to-end
+---
 
-**Progress:**
-- 2026-01-18 15:00 - Starting Phase 3 implementation
-- Created todo list to track Phase 3 tasks
-- 2026-01-18 15:15 - ✅ Created prompts package (internal/prompts)
-  - Default prompts for supervisor, worker, merge-queue
-  - Support for custom prompts from .multiclaude/ directory
-  - GetPrompt() combines default + custom prompts
-  - All tests passing (9 tests)
-  - Committed: f76458d
-- 2026-01-18 15:45 - ✅ Integrated Claude Code startup in tmux windows
-  - generateSessionID() for unique agent sessions
-  - writePromptFile() stores prompts in ~/.multiclaude/prompts/
-  - startClaudeInTmux() launches Claude with session ID and prompt
-  - initRepo() now starts Claude for supervisor and merge-queue
-  - createWorker() now starts Claude with initial task message
-  - Daemon accepts session_id from CLI instead of generating
-  - Added MULTICLAUDE_TEST_MODE env var to skip Claude in tests
-  - Fixed e2e test tmux session lifecycle
-  - All 78 tests passing
-  - Committed: ef4755e
-- 2026-01-18 16:00 - ✅ Added hooks configuration support
-  - copyHooksConfig() reads .multiclaude/hooks.json from repo
-  - Copies to .claude/settings.json in each worktree
-  - Applied to all agent types before Claude startup
-  - Non-fatal warnings if config doesn't exist
-  - Committed: 7549680
-- 2026-01-18 16:15 - ✅ Updated SPEC.md with Phase 3 progress
-  - Marked core Claude integration tasks complete
-  - Committed: 4c774a6
+## Phase 4: Polish & Refinement
 
-**Phase 3 Summary:**
-Core Claude Code integration is COMPLETE! The system now:
-- Starts Claude instances in all agent tmux windows
-- Loads role-specific prompts (supervisor, worker, merge-queue)
-- Supports custom prompts from .multiclaude/ directory
-- Passes unique session IDs for persistence
-- Sends initial tasks to worker agents
-- Copies optional hooks configuration to worktrees
-- All 78 tests passing with MULTICLAUDE_TEST_MODE support
+**Status:** In Progress
 
-**Commits in Phase 3:**
-1. f76458d - Add prompts package with default role-specific prompts
-2. ef4755e - Add Claude Code startup in tmux windows with session tracking
-3. 7549680 - Add hooks configuration support
-4. 4c774a6 - Mark Phase 3 core tasks complete in SPEC.md
+**Planned:**
+- Enhanced error messages
+- Better attach command with read-only mode
+- Rich list commands with status info
+- Edge case handling
+- Performance optimization
+- GitHub auth verification
 
-**Remaining work:**
-- Process health monitoring (daemon health check loop already exists, just needs PID tracking)
-- Crash recovery (restart Claude with same session ID)
-- Agent intelligence behaviors will be validated through actual use
+---
 
-**Ready for manual end-to-end testing with real Claude instances!**
+## Architecture Decisions
 
-### Post-Phase 3 Additions
+**Why tmux?**
+- Human observable at all times
+- Standard tool, no new UIs to learn
+- Detachable sessions survive disconnects
+- Easy to attach for debugging
 
-- 2026-01-18 16:30 - ✅ Added stop-all command
-  - `multiclaude stop-all` kills all tmux sessions and stops daemon
-  - `multiclaude stop-all --clean` also removes state files
-  - Gets repo list from daemon or state file
-  - Finds and kills all mc-* tmux sessions including orphans
-  - Committed: 8e10cb2
-- 2026-01-18 16:45 - ✅ Fixed session ID format to proper UUID v4
-  - Claude requires UUIDs with dashes, not plain hex strings
-  - Updated generateSessionID() to format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-  - Committed: 75f5701
-- 2026-01-18 16:50 - ✅ Added --dangerously-skip-permissions flag
-  - Agents were stuck on Claude's repo permission prompt
-  - Added flag to allow autonomous operation in isolated worktrees
-  - Committed: d7b5846
-- 2026-01-18 17:00 - ✅ Converted prompts to embedded markdown files
-  - Created supervisor.md, worker.md, merge-queue.md
-  - Used //go:embed for cleaner, maintainable prompt files
-  - Better syntax highlighting and version control
-  - Committed: 694f659
-- 2026-01-18 17:15 - ✅ Implemented Claude PID tracking and health monitoring
-  - startClaudeInTmux() now returns PID from tmux pane
-  - PIDs stored in agent state via daemon
-  - Health check loop already monitors PIDs (isProcessAlive)
-  - Logs warnings when Claude processes die
-  - Committed: e40594d
+**Why git worktrees?**
+- True isolation between agents
+- No branch switching conflicts
+- Clean cleanup via `git worktree remove`
+- Standard git, no special tooling
 
-**Phase 3: COMPLETE! 🎉**
-All core Claude integration functionality is now implemented and working:
-- ✅ Claude startup in tmux with UUID session IDs
-- ✅ Role-specific prompts (embedded markdown)
-- ✅ Custom prompt loading from repos
-- ✅ Hooks configuration support
-- ✅ PID tracking and health monitoring
-- ✅ Autonomous operation (skip permissions)
-- ✅ Initial task messages to workers
+**Why filesystem messages?**
+- Simple to debug (just cat the files)
+- No database dependencies
+- Easy to inspect and modify
+- Survives daemon restarts
 
-Total commits in Phase 3: 9
-- f76458d - Prompts package
-- ef4755e - Claude startup integration
-- 7549680 - Hooks configuration
-- 4c774a6 - SPEC update
-- 8e10cb2 - stop-all command
-- 75f5701 - UUID v4 format fix
-- d7b5846 - Skip permissions flag
-- 694f659 - Embedded markdown prompts
-- e40594d - PID tracking
+**Why single daemon?**
+- Single source of truth for state
+- Centralized coordination
+- Simple CLI communication via socket
+- Easy to reason about
 
-System is production-ready for real-world testing!
+---
+
+## Test Commands
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with verbose output
+go test ./... -v
+
+# Run specific package
+go test ./internal/daemon -v
+go test ./internal/tmux -v
+
+# Build
+go build ./cmd/multiclaude
+```
+
+---
+
+## Useful Debug Commands
+
+```bash
+# Check daemon status
+multiclaude daemon status
+
+# View daemon logs
+tail -f ~/.multiclaude/daemon.log
+
+# List tmux sessions
+tmux list-sessions
+
+# Attach to repo session
+tmux attach -t mc-<repo>
+
+# Check state file
+cat ~/.multiclaude/state.json | jq
+
+# List messages for an agent
+ls ~/.multiclaude/messages/<repo>/<agent>/
+```
