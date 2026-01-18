@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/dlorenc/multiclaude/internal/daemon"
 	"github.com/dlorenc/multiclaude/internal/messages"
+	"github.com/dlorenc/multiclaude/internal/names"
+	"github.com/dlorenc/multiclaude/internal/prompts"
 	"github.com/dlorenc/multiclaude/internal/socket"
 	"github.com/dlorenc/multiclaude/internal/worktree"
 	"github.com/dlorenc/multiclaude/pkg/config"
@@ -418,6 +422,42 @@ func (c *CLI) initRepo(args []string) error {
 		return fmt.Errorf("failed to create merge-queue window: %w", err)
 	}
 
+	// Generate session IDs for agents
+	supervisorSessionID, err := generateSessionID()
+	if err != nil {
+		return fmt.Errorf("failed to generate supervisor session ID: %w", err)
+	}
+
+	mergeQueueSessionID, err := generateSessionID()
+	if err != nil {
+		return fmt.Errorf("failed to generate merge-queue session ID: %w", err)
+	}
+
+	// Write prompt files
+	supervisorPromptFile, err := c.writePromptFile(repoPath, prompts.TypeSupervisor, "supervisor")
+	if err != nil {
+		return fmt.Errorf("failed to write supervisor prompt: %w", err)
+	}
+
+	mergeQueuePromptFile, err := c.writePromptFile(repoPath, prompts.TypeMergeQueue, "merge-queue")
+	if err != nil {
+		return fmt.Errorf("failed to write merge-queue prompt: %w", err)
+	}
+
+	// Start Claude in supervisor window (skip in test mode)
+	if os.Getenv("MULTICLAUDE_TEST_MODE") != "1" {
+		fmt.Println("Starting Claude Code in supervisor window...")
+		if err := c.startClaudeInTmux(tmuxSession, "supervisor", repoPath, supervisorSessionID, supervisorPromptFile, ""); err != nil {
+			return fmt.Errorf("failed to start supervisor Claude: %w", err)
+		}
+
+		// Start Claude in merge-queue window
+		fmt.Println("Starting Claude Code in merge-queue window...")
+		if err := c.startClaudeInTmux(tmuxSession, "merge-queue", repoPath, mergeQueueSessionID, mergeQueuePromptFile, ""); err != nil {
+			return fmt.Errorf("failed to start merge-queue Claude: %w", err)
+		}
+	}
+
 	// Add repository to daemon state
 	resp, err := client.Send(socket.Request{
 		Command: "add_repo",
@@ -443,6 +483,7 @@ func (c *CLI) initRepo(args []string) error {
 			"type":          "supervisor",
 			"worktree_path": repoPath,
 			"tmux_window":   "supervisor",
+			"session_id":    supervisorSessionID,
 		},
 	})
 	if err != nil {
@@ -461,6 +502,7 @@ func (c *CLI) initRepo(args []string) error {
 			"type":          "merge-queue",
 			"worktree_path": repoPath,
 			"tmux_window":   "merge-queue",
+			"session_id":    mergeQueueSessionID,
 		},
 	})
 	if err != nil {
@@ -547,13 +589,20 @@ func (c *CLI) createWorker(args []string) error {
 		}
 	}
 
-	// Generate worker name
-	workerName := fmt.Sprintf("worker-%d", os.Getpid()%10000)
+	// Generate worker name (Docker-style)
+	workerName := names.Generate()
 	if name, ok := flags["name"]; ok {
 		workerName = name
 	}
 
-	fmt.Printf("Creating worker '%s' in repo '%s'\n", workerName, repoName)
+	// Determine branch to start from
+	startBranch := "HEAD" // Default to current branch/HEAD
+	if branch, ok := flags["branch"]; ok {
+		startBranch = branch
+		fmt.Printf("Creating worker '%s' in repo '%s' from branch '%s'\n", workerName, repoName, branch)
+	} else {
+		fmt.Printf("Creating worker '%s' in repo '%s'\n", workerName, repoName)
+	}
 	fmt.Printf("Task: %s\n", task)
 
 	// Get repository path
@@ -565,7 +614,7 @@ func (c *CLI) createWorker(args []string) error {
 	branchName := fmt.Sprintf("work/%s", workerName)
 
 	fmt.Printf("Creating worktree at: %s\n", wtPath)
-	if err := wt.CreateNewBranch(wtPath, branchName, "HEAD"); err != nil {
+	if err := wt.CreateNewBranch(wtPath, branchName, startBranch); err != nil {
 		return fmt.Errorf("failed to create worktree: %w", err)
 	}
 
@@ -594,6 +643,27 @@ func (c *CLI) createWorker(args []string) error {
 		return fmt.Errorf("failed to create tmux window: %w", err)
 	}
 
+	// Generate session ID for worker
+	workerSessionID, err := generateSessionID()
+	if err != nil {
+		return fmt.Errorf("failed to generate worker session ID: %w", err)
+	}
+
+	// Write prompt file for worker
+	workerPromptFile, err := c.writePromptFile(repoPath, prompts.TypeWorker, workerName)
+	if err != nil {
+		return fmt.Errorf("failed to write worker prompt: %w", err)
+	}
+
+	// Start Claude in worker window with initial task (skip in test mode)
+	if os.Getenv("MULTICLAUDE_TEST_MODE") != "1" {
+		fmt.Println("Starting Claude Code in worker window...")
+		initialMessage := fmt.Sprintf("Task: %s", task)
+		if err := c.startClaudeInTmux(tmuxSession, workerName, wtPath, workerSessionID, workerPromptFile, initialMessage); err != nil {
+			return fmt.Errorf("failed to start worker Claude: %w", err)
+		}
+	}
+
 	// Register worker with daemon
 	resp, err = client.Send(socket.Request{
 		Command: "add_agent",
@@ -604,6 +674,7 @@ func (c *CLI) createWorker(args []string) error {
 			"worktree_path": wtPath,
 			"tmux_window":   workerName,
 			"task":          task,
+			"session_id":    workerSessionID,
 		},
 	})
 	if err != nil {
@@ -748,6 +819,48 @@ func (c *CLI) removeWorker(args []string) error {
 		return fmt.Errorf("worker '%s' not found", workerName)
 	}
 
+	// Get worktree path
+	wtPath := workerInfo["worktree_path"].(string)
+
+	// Check for uncommitted changes
+	hasUncommitted, err := worktree.HasUncommittedChanges(wtPath)
+	if err != nil {
+		fmt.Printf("Warning: failed to check for uncommitted changes: %v\n", err)
+	} else if hasUncommitted {
+		fmt.Println("\nWarning: Worker has uncommitted changes!")
+		fmt.Println("Files may be lost if you continue with cleanup.")
+		fmt.Print("Continue with cleanup? [y/N]: ")
+
+		var response string
+		fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			fmt.Println("Cleanup cancelled")
+			return nil
+		}
+	}
+
+	// Check for unpushed commits
+	hasUnpushed, err := worktree.HasUnpushedCommits(wtPath)
+	if err != nil {
+		// This is ok - might not have a tracking branch
+		fmt.Printf("Note: Could not check for unpushed commits (no tracking branch?)\n")
+	} else if hasUnpushed {
+		fmt.Println("\nWarning: Worker has unpushed commits!")
+		branch, err := worktree.GetCurrentBranch(wtPath)
+		if err == nil {
+			fmt.Printf("Branch '%s' has commits not pushed to remote.\n", branch)
+		}
+		fmt.Println("These commits may be lost if you continue with cleanup.")
+		fmt.Print("Continue with cleanup? [y/N]: ")
+
+		var response string
+		fmt.Scanln(&response)
+		if response != "y" && response != "Y" {
+			fmt.Println("Cleanup cancelled")
+			return nil
+		}
+	}
+
 	// Kill tmux window
 	tmuxSession := fmt.Sprintf("mc-%s", repoName)
 	tmuxWindow := workerInfo["tmux_window"].(string)
@@ -758,7 +871,6 @@ func (c *CLI) removeWorker(args []string) error {
 	}
 
 	// Remove worktree
-	wtPath := workerInfo["worktree_path"].(string)
 	repoPath := c.paths.RepoDir(repoName)
 	wt := worktree.NewManager(repoPath)
 
@@ -1014,22 +1126,238 @@ func truncateString(s string, maxLen int) string {
 }
 
 func (c *CLI) completeWorker(args []string) error {
-	fmt.Println("Completing worker... (not yet implemented)")
+	// Determine current agent and repo
+	repoName, agentName, err := c.inferAgentContext()
+	if err != nil {
+		return fmt.Errorf("failed to determine agent context: %w", err)
+	}
+
+	fmt.Printf("Marking agent '%s' as complete...\n", agentName)
+
+	client := socket.NewClient(c.paths.DaemonSock)
+	resp, err := client.Send(socket.Request{
+		Command: "complete_agent",
+		Args: map[string]interface{}{
+			"repo":  repoName,
+			"agent": agentName,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to mark agent complete: %w (is daemon running?)", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to mark agent complete: %s", resp.Error)
+	}
+
+	fmt.Println("✓ Agent marked as complete")
+	fmt.Println("The daemon will clean up this agent's resources shortly.")
 	return nil
 }
 
 func (c *CLI) attachAgent(args []string) error {
-	fmt.Println("Attaching to agent... (not yet implemented)")
-	return nil
+	if len(args) < 1 {
+		return fmt.Errorf("usage: multiclaude attach <agent-name> [--read-only]")
+	}
+
+	agentName := args[0]
+	flags, _ := ParseFlags(args[1:])
+	readOnly := flags["read-only"] == "true" || flags["r"] == "true"
+
+	// Determine repository
+	var repoName string
+	if r, ok := flags["repo"]; ok {
+		repoName = r
+	} else {
+		// Try to infer from tracked repos
+		repos := c.getReposList()
+		if len(repos) == 0 {
+			return fmt.Errorf("no repositories tracked")
+		}
+		if len(repos) == 1 {
+			repoName = repos[0]
+		} else {
+			return fmt.Errorf("multiple repos exist. Use --repo flag to specify which one")
+		}
+	}
+
+	// Get agent info to find tmux session and window
+	client := socket.NewClient(c.paths.DaemonSock)
+	resp, err := client.Send(socket.Request{
+		Command: "list_agents",
+		Args: map[string]interface{}{
+			"repo": repoName,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get agent info: %w (is daemon running?)", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to get agent info: %s", resp.Error)
+	}
+
+	// Find agent
+	agents, _ := resp.Data.([]interface{})
+	var agentInfo map[string]interface{}
+	for _, agent := range agents {
+		if agentMap, ok := agent.(map[string]interface{}); ok {
+			if name, _ := agentMap["name"].(string); name == agentName {
+				agentInfo = agentMap
+				break
+			}
+		}
+	}
+
+	if agentInfo == nil {
+		return fmt.Errorf("agent '%s' not found in repo '%s'", agentName, repoName)
+	}
+
+	// Get tmux session and window
+	tmuxSession := fmt.Sprintf("mc-%s", repoName)
+	tmuxWindow := agentInfo["tmux_window"].(string)
+
+	// Attach to tmux
+	target := fmt.Sprintf("%s:%s", tmuxSession, tmuxWindow)
+
+	tmuxArgs := []string{"attach", "-t", target}
+	if readOnly {
+		tmuxArgs = append(tmuxArgs, "-r")
+	}
+
+	cmd := exec.Command("tmux", tmuxArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
 
 func (c *CLI) cleanup(args []string) error {
-	fmt.Println("Cleaning up... (not yet implemented)")
+	flags, _ := ParseFlags(args)
+	dryRun := flags["dry-run"] == "true"
+
+	if dryRun {
+		fmt.Println("Running cleanup in dry-run mode (no changes will be made)...")
+	} else {
+		fmt.Println("Running cleanup...")
+	}
+
+	client := socket.NewClient(c.paths.DaemonSock)
+
+	// Check if daemon is running
+	_, err := client.Send(socket.Request{Command: "ping"})
+	if err != nil {
+		fmt.Println("Daemon is not running. Running local cleanup...")
+		return c.localCleanup(dryRun)
+	}
+
+	// Trigger daemon cleanup
+	resp, err := client.Send(socket.Request{
+		Command: "trigger_cleanup",
+		Args: map[string]interface{}{
+			"dry_run": dryRun,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to trigger cleanup: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("cleanup failed: %s", resp.Error)
+	}
+
+	fmt.Println("✓ Cleanup completed")
+	return nil
+}
+
+func (c *CLI) localCleanup(dryRun bool) error {
+	// Clean up orphaned worktrees and tmux sessions without daemon
+	fmt.Println("\nChecking for orphaned resources...")
+
+	// List all repos
+	entries, err := os.ReadDir(c.paths.ReposDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No repositories found")
+			return nil
+		}
+		return fmt.Errorf("failed to read repos directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		repoName := entry.Name()
+		repoPath := c.paths.RepoDir(repoName)
+		wtRootDir := c.paths.WorktreeDir(repoName)
+
+		fmt.Printf("\nRepository: %s\n", repoName)
+
+		// Check for orphaned worktrees
+		if _, err := os.Stat(wtRootDir); err == nil {
+			wt := worktree.NewManager(repoPath)
+			removed, err := worktree.CleanupOrphaned(wtRootDir, wt)
+			if err != nil {
+				fmt.Printf("  Warning: failed to cleanup worktrees: %v\n", err)
+				continue
+			}
+
+			if len(removed) > 0 {
+				for _, path := range removed {
+					if dryRun {
+						fmt.Printf("  Would remove: %s\n", path)
+					} else {
+						fmt.Printf("  Removed: %s\n", path)
+					}
+				}
+			} else {
+				fmt.Println("  No orphaned worktrees found")
+			}
+
+			// Prune git worktree references
+			if !dryRun {
+				if err := wt.Prune(); err != nil {
+					fmt.Printf("  Warning: failed to prune worktrees: %v\n", err)
+				}
+			}
+		}
+	}
+
+	fmt.Println("\n✓ Local cleanup completed")
 	return nil
 }
 
 func (c *CLI) repair(args []string) error {
-	fmt.Println("Repairing state... (not yet implemented)")
+	fmt.Println("Repairing state...")
+
+	// Check if daemon is running
+	client := socket.NewClient(c.paths.DaemonSock)
+	_, err := client.Send(socket.Request{Command: "ping"})
+	if err != nil {
+		return fmt.Errorf("daemon must be running to repair state. Start it with: multiclaude start")
+	}
+
+	// Trigger state repair
+	resp, err := client.Send(socket.Request{
+		Command: "repair_state",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to trigger repair: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("repair failed: %s", resp.Error)
+	}
+
+	fmt.Println("✓ State repaired successfully")
+	if data, ok := resp.Data.(map[string]interface{}); ok {
+		if removed, ok := data["agents_removed"].(float64); ok && removed > 0 {
+			fmt.Printf("  Removed %d dead agent(s)\n", int(removed))
+		}
+		if fixed, ok := data["issues_fixed"].(float64); ok && fixed > 0 {
+			fmt.Printf("  Fixed %d issue(s)\n", int(fixed))
+		}
+	}
+
 	return nil
 }
 
@@ -1064,4 +1392,66 @@ func ParseFlags(args []string) (map[string]string, []string) {
 	}
 
 	return flags, positional
+}
+
+// generateSessionID generates a unique session ID for an agent
+func generateSessionID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate session ID: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// writePromptFile writes the agent prompt to a temporary file and returns the path
+func (c *CLI) writePromptFile(repoPath string, agentType prompts.AgentType, agentName string) (string, error) {
+	// Get the complete prompt (default + custom)
+	promptText, err := prompts.GetPrompt(repoPath, agentType)
+	if err != nil {
+		return "", fmt.Errorf("failed to get prompt: %w", err)
+	}
+
+	// Create a prompt file in the prompts directory
+	promptDir := filepath.Join(c.paths.Root, "prompts")
+	if err := os.MkdirAll(promptDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create prompt directory: %w", err)
+	}
+
+	promptPath := filepath.Join(promptDir, fmt.Sprintf("%s.md", agentName))
+	if err := os.WriteFile(promptPath, []byte(promptText), 0644); err != nil {
+		return "", fmt.Errorf("failed to write prompt file: %w", err)
+	}
+
+	return promptPath, nil
+}
+
+// startClaudeInTmux starts Claude Code in a tmux window with the given configuration
+func (c *CLI) startClaudeInTmux(tmuxSession, tmuxWindow, workDir, sessionID, promptFile string, initialMessage string) error {
+	// Build Claude command
+	claudeCmd := fmt.Sprintf("claude --session-id %s", sessionID)
+
+	// Add prompt file if provided
+	if promptFile != "" {
+		claudeCmd += fmt.Sprintf(" --append-system-prompt-file %s", promptFile)
+	}
+
+	// Send command to tmux window
+	target := fmt.Sprintf("%s:%s", tmuxSession, tmuxWindow)
+	cmd := exec.Command("tmux", "send-keys", "-t", target, claudeCmd, "C-m")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start Claude in tmux: %w", err)
+	}
+
+	// If there's an initial message, send it after a brief delay
+	if initialMessage != "" {
+		// Wait a moment for Claude to start
+		time.Sleep(1 * time.Second)
+
+		cmd = exec.Command("tmux", "send-keys", "-t", target, initialMessage, "C-m")
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to send initial message to Claude: %w", err)
+		}
+	}
+
+	return nil
 }

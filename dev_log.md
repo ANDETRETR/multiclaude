@@ -133,3 +133,25 @@ All core daemon and CLI infrastructure is implemented:
 - ✅ All communication via Unix socket to daemon
 
 Ready for Phase 3: Replace plain shells with Claude Code instances.
+
+### Phase 3: Claude Code Integration
+
+**Goal:** Replace plain shells with Claude Code instances running in tmux
+
+**Starting Tasks:**
+- [ ] Create role-specific prompt files (supervisor, worker, merge-queue)
+- [ ] Update CLI to start Claude instead of shells in tmux windows
+- [ ] Add session ID tracking and pass to Claude
+- [ ] Support loading custom prompts from .multiclaude/ directory
+- [ ] Add hooks.json configuration support
+- [ ] Test Claude integration end-to-end
+
+**Progress:**
+- 2026-01-18 15:00 - Starting Phase 3 implementation
+- Created todo list to track Phase 3 tasks
+- 2026-01-18 15:15 - ✅ Created prompts package (internal/prompts)
+  - Default prompts for supervisor, worker, merge-queue
+  - Support for custom prompts from .multiclaude/ directory
+  - GetPrompt() combines default + custom prompts
+  - All tests passing (9 tests)
+  - Committed: f76458d

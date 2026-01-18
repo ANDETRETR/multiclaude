@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/dlorenc/multiclaude/internal/logging"
+	"github.com/dlorenc/multiclaude/internal/messages"
 	"github.com/dlorenc/multiclaude/internal/socket"
 	"github.com/dlorenc/multiclaude/internal/state"
 	"github.com/dlorenc/multiclaude/internal/tmux"
+	"github.com/dlorenc/multiclaude/internal/worktree"
 	"github.com/dlorenc/multiclaude/pkg/config"
 )
 
@@ -176,6 +178,8 @@ func (d *Daemon) healthCheckLoop() {
 func (d *Daemon) checkAgentHealth() {
 	d.logger.Debug("Checking agent health")
 
+	deadAgents := make(map[string][]string) // repo -> []agent names
+
 	for repoName, repo := range d.state.Repos {
 		// Check if tmux session exists
 		hasSession, err := d.tmux.HasSession(repo.TmuxSession)
@@ -186,7 +190,13 @@ func (d *Daemon) checkAgentHealth() {
 
 		if !hasSession {
 			d.logger.Warn("Tmux session %s not found for repo %s", repo.TmuxSession, repoName)
-			// TODO: Mark repo for cleanup or recovery
+			// Mark all agents in this repo for cleanup
+			for agentName := range repo.Agents {
+				if deadAgents[repoName] == nil {
+					deadAgents[repoName] = []string{}
+				}
+				deadAgents[repoName] = append(deadAgents[repoName], agentName)
+			}
 			continue
 		}
 
@@ -201,7 +211,10 @@ func (d *Daemon) checkAgentHealth() {
 
 			if !hasWindow {
 				d.logger.Warn("Agent %s window not found, marking for cleanup", agentName)
-				// TODO: Mark agent for cleanup
+				if deadAgents[repoName] == nil {
+					deadAgents[repoName] = []string{}
+				}
+				deadAgents[repoName] = append(deadAgents[repoName], agentName)
 				continue
 			}
 
@@ -209,11 +222,20 @@ func (d *Daemon) checkAgentHealth() {
 			if agent.PID > 0 {
 				if !isProcessAlive(agent.PID) {
 					d.logger.Warn("Agent %s process (PID %d) not running", agentName, agent.PID)
-					// TODO: Mark agent for cleanup or restart
+					// Don't clean up just because process died - window might still be active
+					// User might have restarted Claude manually
 				}
 			}
 		}
 	}
+
+	// Clean up dead agents
+	if len(deadAgents) > 0 {
+		d.cleanupDeadAgents(deadAgents)
+	}
+
+	// Clean up orphaned worktrees
+	d.cleanupOrphanedWorktrees()
 }
 
 // messageRouterLoop watches for new messages and delivers them
@@ -237,11 +259,53 @@ func (d *Daemon) messageRouterLoop() {
 
 // routeMessages checks for pending messages and delivers them
 func (d *Daemon) routeMessages() {
-	// TODO: Implement message routing
-	// 1. Walk messages directory
-	// 2. Find pending messages
-	// 3. Deliver via tmux send-keys
-	// 4. Mark as delivered
+	d.logger.Debug("Routing messages")
+
+	// Get messages manager
+	msgMgr := d.getMessageManager()
+
+	// Check each repository
+	for repoName, repo := range d.state.Repos {
+		// Check each agent for messages
+		for agentName, agent := range repo.Agents {
+			// Get unread messages (pending or delivered but not yet read)
+			unreadMsgs, err := msgMgr.ListUnread(repoName, agentName)
+			if err != nil {
+				d.logger.Error("Failed to list messages for %s/%s: %v", repoName, agentName, err)
+				continue
+			}
+
+			// Deliver each pending message
+			for _, msg := range unreadMsgs {
+				if msg.Status != messages.StatusPending {
+					// Already delivered, skip
+					continue
+				}
+
+				// Format message for delivery
+				messageText := fmt.Sprintf("📨 Message from %s: %s", msg.From, msg.Body)
+
+				// Send via tmux
+				if err := d.tmux.SendKeys(repo.TmuxSession, agent.TmuxWindow, messageText); err != nil {
+					d.logger.Error("Failed to deliver message %s to %s/%s: %v", msg.ID, repoName, agentName, err)
+					continue
+				}
+
+				// Mark as delivered
+				if err := msgMgr.UpdateStatus(repoName, agentName, msg.ID, messages.StatusDelivered); err != nil {
+					d.logger.Error("Failed to update message %s status: %v", msg.ID, err)
+					continue
+				}
+
+				d.logger.Info("Delivered message %s from %s to %s/%s", msg.ID, msg.From, repoName, agentName)
+			}
+		}
+	}
+}
+
+// getMessageManager returns a message manager instance
+func (d *Daemon) getMessageManager() *messages.Manager {
+	return messages.NewManager(d.paths.MessagesDir)
 }
 
 // wakeLoop periodically wakes agents with status checks
@@ -334,6 +398,15 @@ func (d *Daemon) handleRequest(req socket.Request) socket.Response {
 
 	case "list_agents":
 		return d.handleListAgents(req)
+
+	case "complete_agent":
+		return d.handleCompleteAgent(req)
+
+	case "trigger_cleanup":
+		return d.handleTriggerCleanup(req)
+
+	case "repair_state":
+		return d.handleRepairState(req)
 
 	default:
 		return socket.Response{
@@ -428,11 +501,17 @@ func (d *Daemon) handleAddAgent(req socket.Request) socket.Response {
 		return socket.Response{Success: false, Error: "missing or invalid 'tmux_window' argument"}
 	}
 
+	// Get session ID from args or generate one
+	sessionID, ok := req.Args["session_id"].(string)
+	if !ok || sessionID == "" {
+		sessionID = fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	}
+
 	agent := state.Agent{
 		Type:         state.AgentType(agentTypeStr),
 		WorktreePath: worktreePath,
 		TmuxWindow:   tmuxWindow,
-		SessionID:    fmt.Sprintf("agent-%d", time.Now().UnixNano()),
+		SessionID:    sessionID,
 		CreatedAt:    time.Now(),
 	}
 
@@ -500,6 +579,191 @@ func (d *Daemon) handleListAgents(req socket.Request) socket.Response {
 	}
 
 	return socket.Response{Success: true, Data: agentDetails}
+}
+
+// handleCompleteAgent marks an agent as ready for cleanup
+func (d *Daemon) handleCompleteAgent(req socket.Request) socket.Response {
+	repoName, ok := req.Args["repo"].(string)
+	if !ok {
+		return socket.Response{Success: false, Error: "missing or invalid 'repo' argument"}
+	}
+
+	agentName, ok := req.Args["agent"].(string)
+	if !ok {
+		return socket.Response{Success: false, Error: "missing or invalid 'agent' argument"}
+	}
+
+	agent, exists := d.state.GetAgent(repoName, agentName)
+	if !exists {
+		return socket.Response{Success: false, Error: fmt.Sprintf("agent %s not found in repo %s", agentName, repoName)}
+	}
+
+	// Mark as ready for cleanup
+	agent.ReadyForCleanup = true
+	if err := d.state.UpdateAgent(repoName, agentName, agent); err != nil {
+		return socket.Response{Success: false, Error: err.Error()}
+	}
+
+	d.logger.Info("Agent %s/%s marked as ready for cleanup", repoName, agentName)
+	return socket.Response{Success: true}
+}
+
+// handleTriggerCleanup manually triggers cleanup operations
+func (d *Daemon) handleTriggerCleanup(req socket.Request) socket.Response {
+	d.logger.Info("Manual cleanup triggered")
+
+	// Run health check to find dead agents
+	d.checkAgentHealth()
+
+	return socket.Response{
+		Success: true,
+		Data:    "Cleanup triggered",
+	}
+}
+
+// handleRepairState repairs state inconsistencies
+func (d *Daemon) handleRepairState(req socket.Request) socket.Response {
+	d.logger.Info("State repair triggered")
+
+	agentsRemoved := 0
+	issuesFixed := 0
+
+	// Check all agents and verify resources exist
+	for repoName, repo := range d.state.Repos {
+		// Check tmux session
+		hasSession, err := d.tmux.HasSession(repo.TmuxSession)
+		if err != nil {
+			d.logger.Error("Failed to check session %s: %v", repo.TmuxSession, err)
+			continue
+		}
+
+		if !hasSession {
+			d.logger.Warn("Tmux session %s not found, removing all agents for repo %s", repo.TmuxSession, repoName)
+			// Remove all agents for this repo
+			for agentName := range repo.Agents {
+				if err := d.state.RemoveAgent(repoName, agentName); err == nil {
+					agentsRemoved++
+				}
+			}
+			issuesFixed++
+			continue
+		}
+
+		// Check each agent's resources
+		for agentName, agent := range repo.Agents {
+			hasWindow, _ := d.tmux.HasWindow(repo.TmuxSession, agent.TmuxWindow)
+			if !hasWindow {
+				d.logger.Info("Removing agent %s (window not found)", agentName)
+				if err := d.state.RemoveAgent(repoName, agentName); err == nil {
+					agentsRemoved++
+					issuesFixed++
+				}
+				continue
+			}
+
+			// Check if worktree exists (for workers)
+			if agent.Type == state.AgentTypeWorker && agent.WorktreePath != "" {
+				if _, err := os.Stat(agent.WorktreePath); os.IsNotExist(err) {
+					d.logger.Warn("Worktree missing for agent %s, but window exists - keeping agent", agentName)
+					// Don't remove - user might have manually deleted worktree
+				}
+			}
+		}
+	}
+
+	// Clean up orphaned worktrees
+	d.cleanupOrphanedWorktrees()
+
+	// Clean up orphaned message directories
+	msgMgr := d.getMessageManager()
+	for repoName := range d.state.Repos {
+		validAgents, _ := d.state.ListAgents(repoName)
+		if count, err := msgMgr.CleanupOrphaned(repoName, validAgents); err == nil && count > 0 {
+			issuesFixed += count
+		}
+	}
+
+	d.logger.Info("State repair completed: %d agents removed, %d issues fixed", agentsRemoved, issuesFixed)
+
+	return socket.Response{
+		Success: true,
+		Data: map[string]interface{}{
+			"agents_removed": agentsRemoved,
+			"issues_fixed":   issuesFixed,
+		},
+	}
+}
+
+// cleanupDeadAgents removes dead agents from state
+func (d *Daemon) cleanupDeadAgents(deadAgents map[string][]string) {
+	for repoName, agentNames := range deadAgents {
+		for _, agentName := range agentNames {
+			d.logger.Info("Cleaning up dead agent %s/%s", repoName, agentName)
+
+			agent, exists := d.state.GetAgent(repoName, agentName)
+			if !exists {
+				continue
+			}
+
+			// Remove from state
+			if err := d.state.RemoveAgent(repoName, agentName); err != nil {
+				d.logger.Error("Failed to remove agent %s/%s from state: %v", repoName, agentName, err)
+			}
+
+			// Clean up worktree if it exists
+			if agent.WorktreePath != "" && agent.Type == state.AgentTypeWorker {
+				repo, _ := d.state.GetRepo(repoName)
+				if repo != nil {
+					repoPath := d.paths.RepoDir(repoName)
+					wt := worktree.NewManager(repoPath)
+					if err := wt.Remove(agent.WorktreePath, true); err != nil {
+						d.logger.Warn("Failed to remove worktree %s: %v", agent.WorktreePath, err)
+					} else {
+						d.logger.Info("Removed worktree for dead agent: %s", agent.WorktreePath)
+					}
+				}
+			}
+
+			// Clean up message directory
+			msgMgr := d.getMessageManager()
+			validAgents, _ := d.state.ListAgents(repoName)
+			if _, err := msgMgr.CleanupOrphaned(repoName, validAgents); err != nil {
+				d.logger.Warn("Failed to cleanup orphaned messages for %s: %v", repoName, err)
+			}
+		}
+	}
+}
+
+// cleanupOrphanedWorktrees removes worktree directories without git tracking
+func (d *Daemon) cleanupOrphanedWorktrees() {
+	for repoName := range d.state.Repos {
+		repoPath := d.paths.RepoDir(repoName)
+		wtRootDir := d.paths.WorktreeDir(repoName)
+
+		// Check if worktree directory exists
+		if _, err := os.Stat(wtRootDir); os.IsNotExist(err) {
+			continue
+		}
+
+		wt := worktree.NewManager(repoPath)
+		removed, err := worktree.CleanupOrphaned(wtRootDir, wt)
+		if err != nil {
+			d.logger.Error("Failed to cleanup orphaned worktrees for %s: %v", repoName, err)
+			continue
+		}
+
+		if len(removed) > 0 {
+			d.logger.Info("Cleaned up %d orphaned worktree(s) for %s", len(removed), repoName)
+			for _, path := range removed {
+				d.logger.Debug("Removed orphaned worktree: %s", path)
+			}
+		}
+
+		// Also prune git worktree references
+		if err := wt.Prune(); err != nil {
+			d.logger.Warn("Failed to prune worktrees for %s: %v", repoName, err)
+		}
+	}
 }
 
 // isProcessAlive checks if a process is running
