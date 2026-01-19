@@ -1599,6 +1599,11 @@ func RunDetached() error {
 		return fmt.Errorf("daemon already running (PID: %d)", pid)
 	}
 
+	// Ensure config directory exists
+	if err := os.MkdirAll(paths.Root, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
 	// Create log file for output
 	logFile, err := os.OpenFile(paths.DaemonLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
