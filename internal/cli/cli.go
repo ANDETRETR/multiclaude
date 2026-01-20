@@ -136,7 +136,18 @@ func (c *CLI) Execute(args []string) error {
 		return c.showHelp()
 	}
 
+	// Check for --version or -v flag at top level
+	if args[0] == "--version" || args[0] == "-v" {
+		return c.showVersion()
+	}
+
 	return c.executeCommand(c.rootCmd, args)
+}
+
+// showVersion displays the version information
+func (c *CLI) showVersion() error {
+	fmt.Printf("multiclaude %s\n", Version)
+	return nil
 }
 
 // executeCommand recursively executes commands and subcommands
@@ -538,6 +549,16 @@ func (c *CLI) registerCommands() {
 		Description: "Generate a diagnostic bug report",
 		Usage:       "multiclaude bug [--output <file>] [--verbose] [description]",
 		Run:         c.bugReport,
+	}
+
+	// Version command
+	c.rootCmd.Subcommands["version"] = &Command{
+		Name:        "version",
+		Description: "Show version information",
+		Usage:       "multiclaude version",
+		Run: func(args []string) error {
+			return c.showVersion()
+		},
 	}
 }
 
