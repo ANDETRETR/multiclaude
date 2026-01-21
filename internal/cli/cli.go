@@ -20,7 +20,6 @@ import (
 	"github.com/dlorenc/multiclaude/internal/messages"
 	"github.com/dlorenc/multiclaude/internal/names"
 	"github.com/dlorenc/multiclaude/internal/prompts"
-	"github.com/dlorenc/multiclaude/internal/prompts/commands"
 	"github.com/dlorenc/multiclaude/internal/socket"
 	"github.com/dlorenc/multiclaude/internal/state"
 	"github.com/dlorenc/multiclaude/internal/worktree"
@@ -4622,7 +4621,10 @@ func ParseFlags(args []string) (map[string]string, []string) {
 		if strings.HasPrefix(arg, "--") {
 			// Long flag
 			flag := strings.TrimPrefix(arg, "--")
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			// Handle --flag=value format
+			if idx := strings.Index(flag, "="); idx != -1 {
+				flags[flag[:idx]] = flag[idx+1:]
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				flags[flag] = args[i+1]
 				i++
 			} else {
@@ -4631,7 +4633,10 @@ func ParseFlags(args []string) (map[string]string, []string) {
 		} else if strings.HasPrefix(arg, "-") {
 			// Short flag
 			flag := strings.TrimPrefix(arg, "-")
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			// Handle -f=value format
+			if idx := strings.Index(flag, "="); idx != -1 {
+				flags[flag[:idx]] = flag[idx+1:]
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				flags[flag] = args[i+1]
 				i++
 			} else {
@@ -4767,16 +4772,8 @@ func (c *CLI) setupOutputCapture(tmuxSession, tmuxWindow, repoName, agentName, a
 // startClaudeInTmux starts Claude Code in a tmux window with the given configuration
 // Returns the PID of the Claude process
 func (c *CLI) startClaudeInTmux(binaryPath, tmuxSession, tmuxWindow, workDir, sessionID, promptFile, repoName string, initialMessage string) (int, error) {
-	// Set up per-agent Claude config directory with slash commands
-	agentConfigDir := c.paths.AgentClaudeConfigDir(repoName, tmuxWindow)
-	if err := commands.SetupAgentCommands(agentConfigDir); err != nil {
-		// Log warning but don't fail - slash commands are a nice-to-have
-		fmt.Printf("Warning: failed to setup agent commands: %v\n", err)
-	}
-
-	// Build Claude command using the full path to prevent version drift
-	// Set CLAUDE_CONFIG_DIR to inject per-agent slash commands
-	claudeCmd := fmt.Sprintf("CLAUDE_CONFIG_DIR=%s %s --session-id %s --dangerously-skip-permissions", agentConfigDir, binaryPath, sessionID)
+	// Build Claude command - uses global ~/.claude/ for auth and slash commands are embedded in prompts
+	claudeCmd := fmt.Sprintf("%s --session-id %s --dangerously-skip-permissions", binaryPath, sessionID)
 
 	// Add prompt file if provided
 	if promptFile != "" {
@@ -4816,7 +4813,6 @@ func (c *CLI) startClaudeInTmux(binaryPath, tmuxSession, tmuxWindow, workDir, se
 
 	return pid, nil
 }
-
 
 // bugReport generates a diagnostic bug report with redacted sensitive information
 func (c *CLI) bugReport(args []string) error {
