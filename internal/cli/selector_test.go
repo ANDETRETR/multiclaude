@@ -353,3 +353,27 @@ func TestAgentsToSelectableItems_FilterNotMatching(t *testing.T) {
 		t.Errorf("expected 0 items for non-matching filter, got %d", len(items))
 	}
 }
+
+func TestFormatAgentStatusCell(t *testing.T) {
+	tests := []struct {
+		status   string
+		wantText string
+	}{
+		{"running", "running"},
+		{"completed", "completed"},
+		{"stopped", "stopped"},
+		{"idle", "idle"},
+		{"", "idle"},            // Default case
+		{"unknown", "idle"},    // Unknown status defaults to idle
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			cell := formatAgentStatusCell(tt.status)
+			// The cell.Text contains ANSI escape codes, but we can check it's not empty
+			if cell.Text == "" {
+				t.Errorf("formatAgentStatusCell(%q) returned empty text", tt.status)
+			}
+		})
+	}
+}

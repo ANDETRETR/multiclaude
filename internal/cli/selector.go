@@ -87,17 +87,19 @@ func SelectFromList(prompt string, items []SelectableItem) (string, error) {
 	return items[num-1].Name, nil
 }
 
-// SelectFromListWithDefault is like SelectFromList but returns the default value
-// when selection is cancelled instead of returning empty string.
-func SelectFromListWithDefault(prompt string, items []SelectableItem, defaultValue string) (string, error) {
-	selected, err := SelectFromList(prompt, items)
-	if err != nil {
-		return "", err
+// formatAgentStatusCell returns a colored cell for an agent status string.
+// This is a common helper to reduce duplication across list commands.
+func formatAgentStatusCell(status string) format.ColoredCell {
+	switch status {
+	case "running":
+		return format.ColorCell(format.ColoredStatus(format.StatusRunning), nil)
+	case "completed":
+		return format.ColorCell(format.ColoredStatus(format.StatusCompleted), nil)
+	case "stopped":
+		return format.ColorCell(format.ColoredStatus(format.StatusError), nil)
+	default:
+		return format.ColorCell(format.ColoredStatus(format.StatusIdle), nil)
 	}
-	if selected == "" {
-		return defaultValue, nil
-	}
-	return selected, nil
 }
 
 // agentsToSelectableItems converts a list of agents to selectable items,

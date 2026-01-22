@@ -1952,15 +1952,7 @@ func (c *CLI) listWorkers(args []string) error {
 	if workspace != nil {
 		format.Header("Workspace in '%s':", repoName)
 		status, _ := workspace["status"].(string)
-		var statusCell format.ColoredCell
-		switch status {
-		case "running":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusRunning), nil)
-		case "completed":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusCompleted), nil)
-		default:
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusIdle), nil)
-		}
+		statusCell := formatAgentStatusCell(status)
 		fmt.Printf("  workspace ")
 		fmt.Print(statusCell.Text)
 		fmt.Println()
@@ -1992,17 +1984,7 @@ func (c *CLI) listWorkers(args []string) error {
 		}
 
 		// Format status with color
-		var statusCell format.ColoredCell
-		switch status {
-		case "running":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusRunning), nil)
-		case "completed":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusCompleted), nil)
-		case "stopped":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusError), nil)
-		default:
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusIdle), nil)
-		}
+		statusCell := formatAgentStatusCell(status)
 
 		// Format branch
 		branchCell := format.ColorCell(branch, format.Cyan)
@@ -2820,17 +2802,7 @@ func (c *CLI) listWorkspaces(args []string) error {
 		branch, _ := ws["branch"].(string)
 
 		// Format status with color
-		var statusCell format.ColoredCell
-		switch status {
-		case "running":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusRunning), nil)
-		case "completed":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusCompleted), nil)
-		case "stopped":
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusError), nil)
-		default:
-			statusCell = format.ColorCell(format.ColoredStatus(format.StatusIdle), nil)
-		}
+		statusCell := formatAgentStatusCell(status)
 
 		// Format branch
 		branchCell := format.ColorCell(branch, format.Cyan)
