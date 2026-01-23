@@ -48,7 +48,7 @@ func DetectFork(repoPath string) (*ForkInfo, error) {
 	}
 
 	// Parse origin URL
-	originOwner, originRepo, err := parseGitHubURL(originURL)
+	originOwner, originRepo, err := ParseGitHubURL(originURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse origin URL: %w", err)
 	}
@@ -64,7 +64,7 @@ func DetectFork(repoPath string) (*ForkInfo, error) {
 	upstreamURL, err := getRemoteURL(repoPath, "upstream")
 	if err == nil && upstreamURL != "" {
 		// Upstream remote exists - this is a fork
-		upstreamOwner, upstreamRepo, err := parseGitHubURL(upstreamURL)
+		upstreamOwner, upstreamRepo, err := ParseGitHubURL(upstreamURL)
 		if err == nil {
 			info.IsFork = true
 			info.UpstreamURL = upstreamURL
@@ -96,13 +96,13 @@ func getRemoteURL(repoPath, remoteName string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// parseGitHubURL extracts owner and repo from a GitHub URL.
+// ParseGitHubURL extracts owner and repo from a GitHub URL.
 // Supports both HTTPS and SSH formats:
 // - https://github.com/owner/repo.git
 // - https://github.com/owner/repo
 // - git@github.com:owner/repo.git
 // - git@github.com:owner/repo
-func parseGitHubURL(url string) (owner, repo string, err error) {
+func ParseGitHubURL(url string) (owner, repo string, err error) {
 	// HTTPS format: https://github.com/owner/repo(.git)?
 	httpsRegex := regexp.MustCompile(`^https://github\.com/([^/]+)/([^/.]+)(?:\.git)?$`)
 	if matches := httpsRegex.FindStringSubmatch(url); matches != nil {
@@ -171,9 +171,4 @@ func AddUpstreamRemote(repoPath, upstreamURL string) error {
 func HasUpstreamRemote(repoPath string) bool {
 	_, err := getRemoteURL(repoPath, "upstream")
 	return err == nil
-}
-
-// ParseGitHubURL is an exported version of parseGitHubURL for testing and external use.
-func ParseGitHubURL(url string) (owner, repo string, err error) {
-	return parseGitHubURL(url)
 }
