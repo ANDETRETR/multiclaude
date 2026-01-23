@@ -630,7 +630,7 @@ func (c *CLI) registerCommands() {
 	c.rootCmd.Subcommands["config"] = &Command{
 		Name:        "config",
 		Description: "View or modify repository configuration",
-		Usage:       "multiclaude config [repo] [--mq-enabled=true|false] [--mq-track=all|author|assigned]",
+		Usage:       "multiclaude config [repo] [--mq-enabled=true|false] [--mq-track=all|author|assigned] [--ps-enabled=true|false] [--ps-track=all|author|assigned]",
 		Run:         c.configRepo,
 	}
 
@@ -1420,7 +1420,7 @@ func (c *CLI) listRepos(args []string) error {
 	format.Header("Tracked repositories (%d):", len(repos))
 	fmt.Println()
 
-	table := format.NewColoredTable("REPO", "AGENTS", "STATUS", "SESSION")
+	table := format.NewColoredTable("REPO", "MODE", "AGENTS", "STATUS", "SESSION")
 	for _, repo := range repos {
 		if repoMap, ok := repo.(map[string]interface{}); ok {
 			name, _ := repoMap["name"].(string)
@@ -1434,6 +1434,19 @@ func (c *CLI) listRepos(args []string) error {
 			}
 			sessionHealthy, _ := repoMap["session_healthy"].(bool)
 			tmuxSession, _ := repoMap["tmux_session"].(string)
+
+			// Get fork info
+			isFork, _ := repoMap["is_fork"].(bool)
+			upstreamOwner, _ := repoMap["upstream_owner"].(string)
+			upstreamRepo, _ := repoMap["upstream_repo"].(string)
+
+			// Format mode string
+			var modeStr string
+			if isFork {
+				modeStr = fmt.Sprintf("fork of %s/%s", upstreamOwner, upstreamRepo)
+			} else {
+				modeStr = "upstream"
+			}
 
 			// Format agent count
 			agentStr := fmt.Sprintf("%d total", totalAgents)
@@ -1451,6 +1464,7 @@ func (c *CLI) listRepos(args []string) error {
 
 			table.AddRow(
 				format.Cell(name),
+				format.ColorCell(modeStr, format.Dim),
 				format.Cell(agentStr),
 				statusCell,
 				format.ColorCell(tmuxSession, format.Dim),
@@ -1690,8 +1704,10 @@ func (c *CLI) configRepo(args []string) error {
 	// Check if any config flags are provided
 	hasMqEnabled := flags["mq-enabled"] != ""
 	hasMqTrack := flags["mq-track"] != ""
+	hasPsEnabled := flags["ps-enabled"] != ""
+	hasPsTrack := flags["ps-track"] != ""
 
-	if !hasMqEnabled && !hasMqTrack {
+	if !hasMqEnabled && !hasMqTrack && !hasPsEnabled && !hasPsTrack {
 		// No flags - just show current config
 		return c.showRepoConfig(repoName)
 	}
@@ -1723,18 +1739,28 @@ func (c *CLI) showRepoConfig(repoName string) error {
 	}
 
 	fmt.Printf("Configuration for repository: %s\n\n", repoName)
-	fmt.Println("Merge Queue:")
 
+	// Show fork info if this is a fork
+	isFork, _ := configMap["is_fork"].(bool)
+	if isFork {
+		upstreamOwner, _ := configMap["upstream_owner"].(string)
+		upstreamRepo, _ := configMap["upstream_repo"].(string)
+		fmt.Printf("Fork Mode: Yes (fork of %s/%s)\n\n", upstreamOwner, upstreamRepo)
+	} else {
+		fmt.Println("Fork Mode: No (upstream/direct repository)")
+		fmt.Println()
+	}
+
+	// Show merge queue config
+	fmt.Println("Merge Queue:")
 	mqEnabled := true
 	if enabled, ok := configMap["mq_enabled"].(bool); ok {
 		mqEnabled = enabled
 	}
-
 	mqTrackMode := "all"
 	if trackMode, ok := configMap["mq_track_mode"].(string); ok {
 		mqTrackMode = trackMode
 	}
-
 	if mqEnabled {
 		fmt.Printf("  Enabled: true\n")
 		fmt.Printf("  Track mode: %s\n", mqTrackMode)
@@ -1742,9 +1768,28 @@ func (c *CLI) showRepoConfig(repoName string) error {
 		fmt.Printf("  Enabled: false\n")
 	}
 
+	// Show PR shepherd config
+	fmt.Println("\nPR Shepherd:")
+	psEnabled := true
+	if enabled, ok := configMap["ps_enabled"].(bool); ok {
+		psEnabled = enabled
+	}
+	psTrackMode := "author"
+	if trackMode, ok := configMap["ps_track_mode"].(string); ok {
+		psTrackMode = trackMode
+	}
+	if psEnabled {
+		fmt.Printf("  Enabled: true\n")
+		fmt.Printf("  Track mode: %s\n", psTrackMode)
+	} else {
+		fmt.Printf("  Enabled: false\n")
+	}
+
 	fmt.Println("\nTo modify:")
 	fmt.Printf("  multiclaude config %s --mq-enabled=true|false\n", repoName)
 	fmt.Printf("  multiclaude config %s --mq-track=all|author|assigned\n", repoName)
+	fmt.Printf("  multiclaude config %s --ps-enabled=true|false\n", repoName)
+	fmt.Printf("  multiclaude config %s --ps-track=all|author|assigned\n", repoName)
 
 	return nil
 }
@@ -1773,6 +1818,27 @@ func (c *CLI) updateRepoConfig(repoName string, flags map[string]string) error {
 			updateArgs["mq_track_mode"] = mqTrack
 		default:
 			return fmt.Errorf("invalid --mq-track value: %s (must be 'all', 'author', or 'assigned')", mqTrack)
+		}
+	}
+
+	// Parse PR shepherd flags
+	if psEnabled, ok := flags["ps-enabled"]; ok {
+		switch psEnabled {
+		case "true":
+			updateArgs["ps_enabled"] = true
+		case "false":
+			updateArgs["ps_enabled"] = false
+		default:
+			return fmt.Errorf("invalid --ps-enabled value: %s (must be 'true' or 'false')", psEnabled)
+		}
+	}
+
+	if psTrack, ok := flags["ps-track"]; ok {
+		switch psTrack {
+		case "all", "author", "assigned":
+			updateArgs["ps_track_mode"] = psTrack
+		default:
+			return fmt.Errorf("invalid --ps-track value: %s (must be 'all', 'author', or 'assigned')", psTrack)
 		}
 	}
 
@@ -1930,8 +1996,29 @@ func (c *CLI) createWorker(args []string) error {
 		return fmt.Errorf("failed to generate worker session ID: %w", err)
 	}
 
-	// Write prompt file for worker (with push-to config if specified)
-	workerConfig := WorkerConfig{}
+	// Get fork config from daemon to include in worker prompt
+	var forkConfig state.ForkConfig
+	configResp, err := client.Send(socket.Request{
+		Command: "get_repo_config",
+		Args: map[string]interface{}{
+			"name": repoName,
+		},
+	})
+	if err == nil && configResp.Success {
+		if configMap, ok := configResp.Data.(map[string]interface{}); ok {
+			if isFork, ok := configMap["is_fork"].(bool); ok && isFork {
+				forkConfig.IsFork = true
+				forkConfig.UpstreamURL, _ = configMap["upstream_url"].(string)
+				forkConfig.UpstreamOwner, _ = configMap["upstream_owner"].(string)
+				forkConfig.UpstreamRepo, _ = configMap["upstream_repo"].(string)
+			}
+		}
+	}
+
+	// Write prompt file for worker (with push-to config and fork config if applicable)
+	workerConfig := WorkerConfig{
+		ForkConfig: forkConfig,
+	}
 	if hasPushTo {
 		workerConfig.PushToBranch = pushTo
 	}
@@ -5182,7 +5269,8 @@ func (c *CLI) writePRShepherdPromptFile(repoPath string, agentName string, psCon
 
 // WorkerConfig holds configuration for creating worker prompts
 type WorkerConfig struct {
-	PushToBranch string // Branch to push to instead of creating a new PR (for iterating on existing PRs)
+	PushToBranch string           // Branch to push to instead of creating a new PR (for iterating on existing PRs)
+	ForkConfig   state.ForkConfig // Fork configuration (if working in a fork)
 }
 
 // writeWorkerPromptFile writes a worker prompt file with optional configuration.
@@ -5197,6 +5285,18 @@ func (c *CLI) writeWorkerPromptFile(repoPath string, agentName string, config Wo
 
 	// Add CLI documentation and slash commands
 	promptText = c.appendDocsAndSlashCommands(promptText)
+
+	// Add fork workflow context if working in a fork
+	if config.ForkConfig.IsFork {
+		// Get the fork owner from the GitHub URL
+		forkOwner := c.extractOwnerFromGitHubURL(repoPath)
+		forkWorkflow := prompts.GenerateForkWorkflowPrompt(
+			config.ForkConfig.UpstreamOwner,
+			config.ForkConfig.UpstreamRepo,
+			forkOwner,
+		)
+		promptText = forkWorkflow + "\n---\n\n" + promptText
+	}
 
 	// Add push-to configuration if specified
 	if config.PushToBranch != "" {
@@ -5352,4 +5452,22 @@ func (c *CLI) deleteBranch(repoPath, branch string) error {
 	cmd := exec.Command("git", "branch", "-D", branch)
 	cmd.Dir = repoPath
 	return cmd.Run()
+}
+
+// extractOwnerFromGitHubURL extracts the owner from a repository's origin URL.
+// It first tries to get the origin URL from git remote, then parses it.
+func (c *CLI) extractOwnerFromGitHubURL(repoPath string) string {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	originURL := strings.TrimSpace(string(output))
+	owner, _, err := fork.ParseGitHubURL(originURL)
+	if err != nil {
+		return ""
+	}
+	return owner
 }

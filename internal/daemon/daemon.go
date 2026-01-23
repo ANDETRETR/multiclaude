@@ -420,6 +420,8 @@ func (d *Daemon) wakeAgents() {
 				message = "Status check: Review worker progress and check merge queue."
 			case state.AgentTypeMergeQueue:
 				message = "Status check: Review open PRs and check CI status."
+			case state.AgentTypePRShepherd:
+				message = "Status check: Review PRs on upstream, check CI status, and rebase branches if needed."
 			case state.AgentTypeWorker:
 				message = "Status check: Update on your progress?"
 			case state.AgentTypeReview:
@@ -704,13 +706,23 @@ func (d *Daemon) handleListRepos(req socket.Request) socket.Response {
 			sessionHealthy = hasSession
 		}
 
+		// Determine PR management mode
+		prManagementMode := "merge-queue"
+		if repo.ForkConfig.IsFork {
+			prManagementMode = "pr-shepherd"
+		}
+
 		repoDetails = append(repoDetails, map[string]interface{}{
-			"name":            repoName,
-			"github_url":      repo.GithubURL,
-			"tmux_session":    repo.TmuxSession,
-			"total_agents":    totalAgents,
-			"worker_count":    workerCount,
-			"session_healthy": sessionHealthy,
+			"name":               repoName,
+			"github_url":         repo.GithubURL,
+			"tmux_session":       repo.TmuxSession,
+			"total_agents":       totalAgents,
+			"worker_count":       workerCount,
+			"session_healthy":    sessionHealthy,
+			"is_fork":            repo.ForkConfig.IsFork,
+			"upstream_owner":     repo.ForkConfig.UpstreamOwner,
+			"upstream_repo":      repo.ForkConfig.UpstreamRepo,
+			"pr_management_mode": prManagementMode,
 		})
 	}
 
@@ -1236,11 +1248,27 @@ func (d *Daemon) handleGetRepoConfig(req socket.Request) socket.Response {
 		mqConfig = state.DefaultMergeQueueConfig()
 	}
 
+	// Get PR shepherd config (use default if not set)
+	psConfig := repo.PRShepherdConfig
+	if psConfig.TrackMode == "" {
+		psConfig = state.DefaultPRShepherdConfig()
+	}
+
+	// Get fork config
+	forkConfig := repo.ForkConfig
+
 	return socket.Response{
 		Success: true,
 		Data: map[string]interface{}{
-			"mq_enabled":    mqConfig.Enabled,
-			"mq_track_mode": string(mqConfig.TrackMode),
+			"mq_enabled":      mqConfig.Enabled,
+			"mq_track_mode":   string(mqConfig.TrackMode),
+			"ps_enabled":      psConfig.Enabled,
+			"ps_track_mode":   string(psConfig.TrackMode),
+			"is_fork":         forkConfig.IsFork,
+			"upstream_url":    forkConfig.UpstreamURL,
+			"upstream_owner":  forkConfig.UpstreamOwner,
+			"upstream_repo":   forkConfig.UpstreamRepo,
+			"force_fork_mode": forkConfig.ForceForkMode,
 		},
 	}
 }
@@ -1283,6 +1311,39 @@ func (d *Daemon) handleUpdateRepoConfig(req socket.Request) socket.Response {
 			return socket.Response{Success: false, Error: err.Error()}
 		}
 		d.logger.Info("Updated merge queue config for repo %s: enabled=%v, track=%s", name, currentMQConfig.Enabled, currentMQConfig.TrackMode)
+	}
+
+	// Get current PR shepherd config
+	currentPSConfig, err := d.state.GetPRShepherdConfig(name)
+	if err != nil {
+		return socket.Response{Success: false, Error: err.Error()}
+	}
+
+	// Update PR shepherd config with provided values
+	psUpdated := false
+	if psEnabled, ok := req.Args["ps_enabled"].(bool); ok {
+		currentPSConfig.Enabled = psEnabled
+		psUpdated = true
+	}
+	if psTrackMode, ok := req.Args["ps_track_mode"].(string); ok {
+		switch psTrackMode {
+		case "all":
+			currentPSConfig.TrackMode = state.TrackModeAll
+		case "author":
+			currentPSConfig.TrackMode = state.TrackModeAuthor
+		case "assigned":
+			currentPSConfig.TrackMode = state.TrackModeAssigned
+		default:
+			return socket.Response{Success: false, Error: fmt.Sprintf("invalid track mode: %s", psTrackMode)}
+		}
+		psUpdated = true
+	}
+
+	if psUpdated {
+		if err := d.state.UpdatePRShepherdConfig(name, currentPSConfig); err != nil {
+			return socket.Response{Success: false, Error: err.Error()}
+		}
+		d.logger.Info("Updated PR shepherd config for repo %s: enabled=%v, track=%s", name, currentPSConfig.Enabled, currentPSConfig.TrackMode)
 	}
 
 	return socket.Response{Success: true}
