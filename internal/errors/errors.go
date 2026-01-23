@@ -123,7 +123,7 @@ func DaemonNotRunning() *CLIError {
 	return &CLIError{
 		Category:   CategoryConnection,
 		Message:    "daemon is not running",
-		Suggestion: "multiclaude start",
+		Suggestion: "multiclaude daemon start",
 	}
 }
 
@@ -150,7 +150,7 @@ func NotInRepo() *CLIError {
 	return &CLIError{
 		Category:   CategoryConfig,
 		Message:    "not in a tracked repository",
-		Suggestion: "multiclaude init <github-url> to track a repository, or use --repo flag",
+		Suggestion: "multiclaude repo init <github-url> to track a repository, or use --repo flag",
 	}
 }
 
@@ -168,7 +168,7 @@ func AgentNotFound(agentType, name, repo string) *CLIError {
 	return &CLIError{
 		Category:   CategoryNotFound,
 		Message:    fmt.Sprintf("%s '%s' not found in repository '%s'", agentType, name, repo),
-		Suggestion: fmt.Sprintf("multiclaude work list --repo %s", repo),
+		Suggestion: fmt.Sprintf("multiclaude worker list --repo %s", repo),
 	}
 }
 
@@ -343,7 +343,7 @@ func NoRepositoriesFound() *CLIError {
 	return &CLIError{
 		Category:   CategoryNotFound,
 		Message:    "no repositories found",
-		Suggestion: "multiclaude init <github-url>",
+		Suggestion: "multiclaude repo init <github-url>",
 	}
 }
 
@@ -352,7 +352,7 @@ func NoWorkersFound(repo string) *CLIError {
 	return &CLIError{
 		Category:   CategoryNotFound,
 		Message:    fmt.Sprintf("no workers found in repo '%s'", repo),
-		Suggestion: fmt.Sprintf("multiclaude work \"<task>\" --repo %s", repo),
+		Suggestion: fmt.Sprintf("multiclaude worker create \"<task>\" --repo %s", repo),
 	}
 }
 
@@ -370,7 +370,7 @@ func NoAgentsFound(repo string) *CLIError {
 	return &CLIError{
 		Category:   CategoryNotFound,
 		Message:    fmt.Sprintf("no agents found in repo '%s'", repo),
-		Suggestion: fmt.Sprintf("multiclaude work list --repo %s", repo),
+		Suggestion: fmt.Sprintf("multiclaude worker list --repo %s", repo),
 	}
 }
 

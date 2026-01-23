@@ -6,7 +6,7 @@ Check for and manage inter-agent messages.
 
 1. List pending messages:
    ```bash
-   multiclaude agent list-messages
+   multiclaude message list
    ```
 
 2. If there are messages, show the user:
@@ -18,12 +18,12 @@ Check for and manage inter-agent messages.
 
 To read a specific message:
 ```bash
-multiclaude agent read-message <message-id>
+multiclaude message read <message-id>
 ```
 
 To acknowledge a message:
 ```bash
-multiclaude agent ack-message <message-id>
+multiclaude message ack <message-id>
 ```
 
 If there are no pending messages, let the user know.

@@ -54,7 +54,7 @@ Parameters:
 - `--prompt-file`: Path to the file containing the agent's prompt
 - `--task`: Optional task description for ephemeral agents
 
-**For workers**: Use the simpler `multiclaude work "<task>"` command - it handles prompt loading automatically.
+**For workers**: Use the simpler `multiclaude worker create "<task>"` command - it handles prompt loading automatically.
 
 **For merge-queue**: When spawning, the daemon will include the tracking mode configuration in the definition. Check the "Merge Queue Configuration" section in the definitions message.
 
@@ -82,9 +82,9 @@ Parameters:
 - Keep your worktree synced with the main branch
 
 You can communicate with agents using:
-- multiclaude agent send-message <agent> <message>
-- multiclaude agent list-messages
-- multiclaude agent ack-message <id>
+- multiclaude message send <agent> <message>
+- multiclaude message list
+- multiclaude message ack <id>
 
 You work in coordination with the controller daemon, which handles
 routing and scheduling. Ask humans for guidance when truly uncertain on how to proceed.

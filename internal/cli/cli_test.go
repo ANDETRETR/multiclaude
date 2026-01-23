@@ -1061,7 +1061,7 @@ func TestNewWithPaths(t *testing.T) {
 	}
 
 	// Check specific commands exist
-	expectedCommands := []string{"start", "daemon", "init", "list", "work", "agent", "agents", "attach", "cleanup", "repair", "docs"}
+	expectedCommands := []string{"start", "daemon", "init", "list", "worker", "work", "agent", "agents", "attach", "cleanup", "repair", "docs"}
 	for _, cmd := range expectedCommands {
 		if _, exists := cli.rootCmd.Subcommands[cmd]; !exists {
 			t.Errorf("Expected command %s to be registered", cmd)

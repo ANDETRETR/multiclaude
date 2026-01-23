@@ -97,10 +97,10 @@ go install github.com/dlorenc/multiclaude/cmd/multiclaude@latest
 multiclaude start
 
 # Initialize a repository
-multiclaude init https://github.com/your/repo
+multiclaude repo init https://github.com/your/repo
 
 # Create a worker to do a task
-multiclaude work "Add unit tests for the auth module"
+multiclaude worker create "Add unit tests for the auth module"
 
 # Watch agents work
 tmux attach -t mc-repo
@@ -147,10 +147,10 @@ multiclaude stop-all --clean   # Stop and remove all state files
 ### Repositories
 
 ```bash
-multiclaude init <github-url>              # Initialize repository tracking
-multiclaude init <github-url> [path] [name] # With custom local path or name
-multiclaude list                           # List tracked repositories
-multiclaude repo rm <name>                 # Remove a tracked repository
+multiclaude repo init <github-url>              # Initialize repository tracking
+multiclaude repo init <github-url> [path] [name] # With custom local path or name
+multiclaude repo list                           # List tracked repositories
+multiclaude repo rm <name>                      # Remove a tracked repository
 ```
 
 ### Workspaces
@@ -170,36 +170,44 @@ multiclaude workspace <name>               # Connect to workspace (shorthand)
 **Notes:**
 - Workspaces use the branch naming convention `workspace/<name>`
 - Workspace names follow git branch naming rules (no spaces, special characters, etc.)
-- A "default" workspace is created automatically when you run `multiclaude init`
-- Use `multiclaude attach <workspace-name>` as an alternative to `workspace connect`
+- A "default" workspace is created automatically when you run `multiclaude repo init`
+- Use `multiclaude agent attach <workspace-name>` as an alternative to `workspace connect`
 
 ### Workers
 
 ```bash
-multiclaude work "task description"        # Create worker for task
-multiclaude work "task" --branch feature   # Start from specific branch
-multiclaude work "Fix tests" --branch origin/work/fox --push-to work/fox  # Iterate on existing PR
-multiclaude work list                      # List active workers
-multiclaude work rm <name>                 # Remove worker (warns if uncommitted work)
+multiclaude worker create "task description"        # Create worker for task
+multiclaude worker create "task" --branch feature   # Start from specific branch
+multiclaude worker create "Fix tests" --branch origin/work/fox --push-to work/fox  # Iterate on existing PR
+multiclaude worker list                      # List active workers
+multiclaude worker rm <name>                 # Remove worker (warns if uncommitted work)
 ```
+
+Note: `multiclaude work` is an alias for `multiclaude worker` for backward compatibility.
 
 The `--push-to` flag creates a worker that pushes to an existing branch instead of creating a new PR. Use this when you want to iterate on an existing PR.
 
 ### Observing
 
 ```bash
-multiclaude attach <agent-name>            # Attach to agent's tmux window
-multiclaude attach <agent-name> --read-only # Observe without interaction
-tmux attach -t mc-<repo>                   # Attach to entire repo session
+multiclaude agent attach <agent-name>            # Attach to agent's tmux window
+multiclaude agent attach <agent-name> --read-only # Observe without interaction
+tmux attach -t mc-<repo>                         # Attach to entire repo session
+```
+
+### Message Commands (inter-agent communication)
+
+```bash
+multiclaude message send <to> "msg"        # Send message to another agent
+multiclaude message send --all "msg"       # Broadcast to all agents
+multiclaude message list                   # List incoming messages
+multiclaude message read <id>              # Read a specific message
+multiclaude message ack <id>               # Acknowledge a message
 ```
 
 ### Agent Commands (run from within Claude)
 
 ```bash
-multiclaude agent send-message <to> "msg"  # Send message to another agent
-multiclaude agent send-message --all "msg" # Broadcast to all agents
-multiclaude agent list-messages            # List incoming messages
-multiclaude agent ack-message <id>         # Acknowledge a message
 multiclaude agent complete                 # Signal task completion (workers)
 ```
 
@@ -241,7 +249,7 @@ When you attach to a repo's tmux session, you'll see multiple windows—one per 
 │  ╭─────────────────────────────────────────────────────────────────────────╮│
 │  │ I'll check on the current workers and see if anyone needs help.        ││
 │  │                                                                         ││
-│  │ > multiclaude work list                                                 ││
+│  │ > multiclaude worker list                                               ││
 │  │ Workers (2):                                                            ││
 │  │   - swift-eagle: working on issue #44                                   ││
 │  │   - calm-deer: working on issue #24                                     ││
@@ -276,15 +284,15 @@ Your workspace is a persistent Claude session where you can spawn and manage wor
 │  ╭─────────────────────────────────────────────────────────────────────────╮│
 │  │ I'll spawn workers for both issues.                                     ││
 │  │                                                                         ││
-│  │ > multiclaude work "Implement rich list commands per issue #44"         ││
+│  │ > multiclaude worker create "Implement rich list commands per issue #44"││
 │  │ ✓ Worker created: swift-eagle (branch: work/swift-eagle)                ││
 │  │                                                                         ││
-│  │ > multiclaude work "Improve error messages per issue #45"               ││
+│  │ > multiclaude worker create "Improve error messages per issue #45"      ││
 │  │ ✓ Worker created: calm-deer (branch: work/calm-deer)                    ││
 │  │                                                                         ││
 │  │ Both workers are now running. You can check on them with:               ││
-│  │   multiclaude work list                                                 ││
-│  │   multiclaude attach swift-eagle                                        ││
+│  │   multiclaude worker list                                               ││
+│  │   multiclaude agent attach swift-eagle                                  ││
 │  ╰─────────────────────────────────────────────────────────────────────────╯│
 │                                                                             │
 │  > Great, let me know when they finish. I'm going to grab lunch.            │
@@ -318,7 +326,7 @@ Later, when you return:
 The supervisor coordinates agents and provides status updates. Attach to watch it work:
 
 ```bash
-multiclaude attach supervisor --read-only
+multiclaude agent attach supervisor --read-only
 ```
 
 ```
@@ -340,7 +348,7 @@ multiclaude attach supervisor --read-only
 │  │                                                                         ││
 │  │ Sending help to calm-deer...                                            ││
 │  │                                                                         ││
-│  │ > multiclaude agent send-message calm-deer "I see you're stuck on a     ││
+│  │ > multiclaude message send calm-deer "I see you're stuck on a           ││
 │  │   test failure. The flaky test in auth_test.go sometimes fails due to   ││
 │  │   timing. Try adding a retry or mocking the clock."                     ││
 │  ╰─────────────────────────────────────────────────────────────────────────╯│
@@ -353,7 +361,7 @@ multiclaude attach supervisor --read-only
 The merge queue monitors PRs and merges them when CI passes:
 
 ```bash
-multiclaude attach merge-queue --read-only
+multiclaude agent attach merge-queue --read-only
 ```
 
 ```
@@ -379,7 +387,7 @@ multiclaude attach merge-queue --read-only
 │  │ ✓ Merged #47 into main                                                  ││
 │  │                                                                         ││
 │  │ Notifying supervisor of merge...                                        ││
-│  │ > multiclaude agent send-message supervisor "Merged PR #47: Add rich    ││
+│  │ > multiclaude message send supervisor "Merged PR #47: Add rich          ││
 │  │   list commands"                                                        ││
 │  ╰─────────────────────────────────────────────────────────────────────────╯│
 │                                                                             │
@@ -393,7 +401,7 @@ When CI fails, the merge queue can spawn workers to fix it:
 │  │ ✗ Tests failed: 2 failures in error_test.go                             ││
 │  │                                                                         ││
 │  │ Spawning fixup worker for #48...                                        ││
-│  │ > multiclaude work "Fix test failures in PR #48" --branch work/calm-deer││
+│  │ > multiclaude worker create "Fix test failures in PR #48" --branch work/calm-deer││
 │  │ ✓ Worker created: quick-fox                                             ││
 │  │                                                                         ││
 │  │ I'll check back on #48 after quick-fox pushes a fix.                    ││

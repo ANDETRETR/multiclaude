@@ -108,7 +108,7 @@ Use structured errors from `internal/errors` for user-facing messages:
 
 ```go
 // Good: User gets helpful message + suggestion
-return errors.DaemonNotRunning()  // "daemon is not running" + "Try: multiclaude start"
+return errors.DaemonNotRunning()  // "daemon is not running" + "Try: multiclaude daemon start"
 
 // Good: Wrap with context
 return errors.GitOperationFailed("clone", err)
@@ -236,10 +236,10 @@ When modifying daemon loops:
 
 ```bash
 # Attach to see what it's doing
-multiclaude attach <agent-name> --read-only
+multiclaude agent attach <agent-name> --read-only
 
 # Check its messages
-multiclaude agent list-messages  # (from agent's tmux window)
+multiclaude message list  # (from agent's tmux window)
 
 # Manually nudge via daemon logs
 tail -f ~/.multiclaude/daemon.log

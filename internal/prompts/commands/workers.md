@@ -7,7 +7,7 @@ Display all active worker agents for the current repository.
 Run the following command to list workers:
 
 ```bash
-multiclaude work list
+multiclaude worker list
 ```
 
 Present the results showing:
@@ -15,4 +15,4 @@ Present the results showing:
 - Their current status
 - What task they are working on (if available)
 
-If no workers are active, let the user know and suggest using `multiclaude work "task description"` to spawn a new worker.
+If no workers are active, let the user know and suggest using `multiclaude worker create "task description"` to spawn a new worker.

@@ -312,9 +312,10 @@ func (c *CLI) showCommandHelp(cmd *Command) error {
 // registerCommands registers all CLI commands
 func (c *CLI) registerCommands() {
 	// Daemon commands
+	// Root-level 'start' is kept as alias for backward compatibility
 	c.rootCmd.Subcommands["start"] = &Command{
 		Name:        "start",
-		Description: "Start the multiclaude daemon",
+		Description: "Start the daemon (alias for 'daemon start')",
 		Usage:       "multiclaude start",
 		Run:         c.startDaemon,
 	}
@@ -369,26 +370,25 @@ func (c *CLI) registerCommands() {
 		Run:         c.stopAll,
 	}
 
-	// Repository commands
-	c.rootCmd.Subcommands["init"] = &Command{
-		Name:        "init",
-		Description: "Initialize a repository",
-		Usage:       "multiclaude init <github-url> [name] [--no-merge-queue] [--mq-track=all|author|assigned]",
-		Run:         c.initRepo,
-	}
-
-	c.rootCmd.Subcommands["list"] = &Command{
-		Name:        "list",
-		Description: "List tracked repositories",
-		Usage:       "multiclaude list",
-		Run:         c.listRepos,
-	}
-
 	// Repository commands (repo subcommand)
 	repoCmd := &Command{
 		Name:        "repo",
 		Description: "Manage repositories",
 		Subcommands: make(map[string]*Command),
+	}
+
+	repoCmd.Subcommands["init"] = &Command{
+		Name:        "init",
+		Description: "Initialize a repository",
+		Usage:       "multiclaude repo init <github-url> [name] [--no-merge-queue] [--mq-track=all|author|assigned]",
+		Run:         c.initRepo,
+	}
+
+	repoCmd.Subcommands["list"] = &Command{
+		Name:        "list",
+		Description: "List tracked repositories",
+		Usage:       "multiclaude repo list",
+		Run:         c.listRepos,
 	}
 
 	repoCmd.Subcommands["rm"] = &Command{
@@ -419,33 +419,55 @@ func (c *CLI) registerCommands() {
 		Run:         c.clearCurrentRepo,
 	}
 
+	repoCmd.Subcommands["history"] = &Command{
+		Name:        "history",
+		Description: "Show task history for a repository",
+		Usage:       "multiclaude repo history [--repo <repo>] [-n <count>] [--status <status>] [--search <query>] [--full]",
+		Run:         c.showHistory,
+	}
+
 	c.rootCmd.Subcommands["repo"] = repoCmd
 
+	// Backward compatibility aliases for root-level repo commands
+	c.rootCmd.Subcommands["init"] = repoCmd.Subcommands["init"]
+	c.rootCmd.Subcommands["list"] = repoCmd.Subcommands["list"]
+	c.rootCmd.Subcommands["history"] = repoCmd.Subcommands["history"]
+
 	// Worker commands
-	workCmd := &Command{
-		Name:        "work",
+	workerCmd := &Command{
+		Name:        "worker",
 		Description: "Manage worker agents",
-		Usage:       "multiclaude work [<task>] [--repo <repo>] [--branch <branch>] [--push-to <branch>]",
+		Usage:       "multiclaude worker [<task>] [--repo <repo>] [--branch <branch>] [--push-to <branch>]",
 		Subcommands: make(map[string]*Command),
 	}
 
-	workCmd.Run = c.createWorker // Default action for 'work' command
+	workerCmd.Run = c.createWorker // Default action for 'worker' command (same as 'worker create')
 
-	workCmd.Subcommands["list"] = &Command{
+	workerCmd.Subcommands["create"] = &Command{
+		Name:        "create",
+		Description: "Create a new worker agent",
+		Usage:       "multiclaude worker create <task> [--repo <repo>] [--branch <branch>] [--push-to <branch>]",
+		Run:         c.createWorker,
+	}
+
+	workerCmd.Subcommands["list"] = &Command{
 		Name:        "list",
 		Description: "List active workers",
-		Usage:       "multiclaude work list [--repo <repo>]",
+		Usage:       "multiclaude worker list [--repo <repo>]",
 		Run:         c.listWorkers,
 	}
 
-	workCmd.Subcommands["rm"] = &Command{
+	workerCmd.Subcommands["rm"] = &Command{
 		Name:        "rm",
 		Description: "Remove a worker",
-		Usage:       "multiclaude work rm <worker-name>",
+		Usage:       "multiclaude worker rm <worker-name>",
 		Run:         c.removeWorker,
 	}
 
-	c.rootCmd.Subcommands["work"] = workCmd
+	c.rootCmd.Subcommands["worker"] = workerCmd
+
+	// 'work' is an alias for 'worker' (backward compatibility)
+	c.rootCmd.Subcommands["work"] = workerCmd
 
 	// Workspace commands
 	workspaceCmd := &Command{
@@ -487,14 +509,6 @@ func (c *CLI) registerCommands() {
 
 	c.rootCmd.Subcommands["workspace"] = workspaceCmd
 
-	// History command
-	c.rootCmd.Subcommands["history"] = &Command{
-		Name:        "history",
-		Description: "Show task history for a repository",
-		Usage:       "multiclaude history [--repo <repo>] [-n <count>] [--status <status>] [--search <query>] [--full]",
-		Run:         c.showHistory,
-	}
-
 	// Agent commands (run from within Claude)
 	agentCmd := &Command{
 		Name:        "agent",
@@ -502,30 +516,32 @@ func (c *CLI) registerCommands() {
 		Subcommands: make(map[string]*Command),
 	}
 
+	// Legacy message commands (aliases for backward compatibility)
+	// Prefer: multiclaude message send/list/read/ack
 	agentCmd.Subcommands["send-message"] = &Command{
 		Name:        "send-message",
-		Description: "Send a message to another agent",
+		Description: "Send a message to another agent (alias for 'message send')",
 		Usage:       "multiclaude agent send-message <recipient> <message>",
 		Run:         c.sendMessage,
 	}
 
 	agentCmd.Subcommands["list-messages"] = &Command{
 		Name:        "list-messages",
-		Description: "List pending messages",
+		Description: "List pending messages (alias for 'message list')",
 		Usage:       "multiclaude agent list-messages",
 		Run:         c.listMessages,
 	}
 
 	agentCmd.Subcommands["read-message"] = &Command{
 		Name:        "read-message",
-		Description: "Read a specific message",
+		Description: "Read a specific message (alias for 'message read')",
 		Usage:       "multiclaude agent read-message <message-id>",
 		Run:         c.readMessage,
 	}
 
 	agentCmd.Subcommands["ack-message"] = &Command{
 		Name:        "ack-message",
-		Description: "Acknowledge a message",
+		Description: "Acknowledge a message (alias for 'message ack')",
 		Usage:       "multiclaude agent ack-message <message-id>",
 		Run:         c.ackMessage,
 	}
@@ -544,15 +560,55 @@ func (c *CLI) registerCommands() {
 		Run:         c.restartAgentCmd,
 	}
 
-	c.rootCmd.Subcommands["agent"] = agentCmd
-
-	// Attach command
-	c.rootCmd.Subcommands["attach"] = &Command{
+	agentCmd.Subcommands["attach"] = &Command{
 		Name:        "attach",
-		Description: "Attach to an agent",
-		Usage:       "multiclaude attach <agent-name> [--read-only]",
+		Description: "Attach to an agent's tmux window",
+		Usage:       "multiclaude agent attach <agent-name> [--read-only]",
 		Run:         c.attachAgent,
 	}
+
+	c.rootCmd.Subcommands["agent"] = agentCmd
+
+	// Message commands (new noun group for message operations)
+	// These are the preferred commands; agent *-message commands are kept as aliases
+	messageCmd := &Command{
+		Name:        "message",
+		Description: "Manage inter-agent messages",
+		Subcommands: make(map[string]*Command),
+	}
+
+	messageCmd.Subcommands["send"] = &Command{
+		Name:        "send",
+		Description: "Send a message to another agent",
+		Usage:       "multiclaude message send <recipient> <message>",
+		Run:         c.sendMessage,
+	}
+
+	messageCmd.Subcommands["list"] = &Command{
+		Name:        "list",
+		Description: "List pending messages",
+		Usage:       "multiclaude message list",
+		Run:         c.listMessages,
+	}
+
+	messageCmd.Subcommands["read"] = &Command{
+		Name:        "read",
+		Description: "Read a specific message",
+		Usage:       "multiclaude message read <message-id>",
+		Run:         c.readMessage,
+	}
+
+	messageCmd.Subcommands["ack"] = &Command{
+		Name:        "ack",
+		Description: "Acknowledge a message",
+		Usage:       "multiclaude message ack <message-id>",
+		Run:         c.ackMessage,
+	}
+
+	c.rootCmd.Subcommands["message"] = messageCmd
+
+	// 'attach' is an alias for 'agent attach' (backward compatibility)
+	c.rootCmd.Subcommands["attach"] = agentCmd.Subcommands["attach"]
 
 	// Maintenance commands
 	c.rootCmd.Subcommands["cleanup"] = &Command{
@@ -958,7 +1014,7 @@ func (c *CLI) stopAll(args []string) error {
 
 		fmt.Println("\n✓ Full cleanup complete! Multiclaude has been reset to a clean state.")
 		fmt.Println("Your repositories are preserved at:", c.paths.ReposDir)
-		fmt.Println("\nRun 'multiclaude start' to begin fresh.")
+		fmt.Println("\nRun 'multiclaude daemon start' to begin fresh.")
 	} else {
 		fmt.Println("\n✓ All multiclaude sessions stopped")
 	}
@@ -1867,7 +1923,7 @@ func (c *CLI) createWorker(args []string) error {
 	// Get task description
 	task := strings.Join(posArgs, " ")
 	if task == "" {
-		return errors.InvalidUsage("usage: multiclaude work <task description>")
+		return errors.InvalidUsage("usage: multiclaude worker create <task description>")
 	}
 
 	// Determine repository
@@ -2153,7 +2209,7 @@ func (c *CLI) listWorkers(args []string) error {
 
 	if len(workers) == 0 {
 		fmt.Printf("No workers in repository '%s'\n", repoName)
-		format.Dimmed("\nCreate a worker with: multiclaude work <task>")
+		format.Dimmed("\nCreate a worker with: multiclaude worker create <task>")
 		return nil
 	}
 
@@ -2434,7 +2490,7 @@ func (c *CLI) showHistory(args []string) error {
 	history, ok := resp.Data.([]interface{})
 	if !ok || len(history) == 0 {
 		fmt.Printf("No task history for repository '%s'\n", repoName)
-		format.Dimmed("\nCreate workers with: multiclaude work <task>")
+		format.Dimmed("\nCreate workers with: multiclaude worker create <task>")
 		return nil
 	}
 

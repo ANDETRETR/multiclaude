@@ -9,7 +9,7 @@ After every 4-5 PRs have been merged, spawn the following maintenance agents:
 Spawn a worker to look for opportunities to refactor and simplify the codebase:
 
 ```bash
-multiclaude work "Review the codebase for refactoring opportunities: look for duplicated code, overly complex functions, unused code, and areas that could be simplified. Create a PR with any improvements found. Focus on small, safe changes that improve readability and maintainability without changing behavior."
+multiclaude worker create "Review the codebase for refactoring opportunities: look for duplicated code, overly complex functions, unused code, and areas that could be simplified. Create a PR with any improvements found. Focus on small, safe changes that improve readability and maintainability without changing behavior."
 ```
 
 **Focus areas:**
@@ -24,7 +24,7 @@ multiclaude work "Review the codebase for refactoring opportunities: look for du
 Spawn a worker to check test coverage and fill gaps:
 
 ```bash
-multiclaude work "Analyze test coverage across the codebase. Run 'go test -coverprofile=coverage.out ./...' to identify packages with low coverage. Add tests for uncovered or under-tested code paths, prioritizing critical business logic and error handling. Create a PR with the new tests."
+multiclaude worker create "Analyze test coverage across the codebase. Run 'go test -coverprofile=coverage.out ./...' to identify packages with low coverage. Add tests for uncovered or under-tested code paths, prioritizing critical business logic and error handling. Create a PR with the new tests."
 ```
 
 **Focus areas:**

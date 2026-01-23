@@ -27,13 +27,13 @@ When the user asks you to "have an agent do X", "spawn a worker for Y", or wants
 
 ```bash
 # Spawn a worker for a task
-multiclaude work "Implement login feature per issue #45"
+multiclaude worker create "Implement login feature per issue #45"
 
 # Check status of workers
-multiclaude work list
+multiclaude worker list
 
 # Remove a worker if needed
-multiclaude work rm <worker-name>
+multiclaude worker rm <worker-name>
 ```
 
 ### When to Spawn Workers
@@ -48,7 +48,7 @@ multiclaude work rm <worker-name>
 ```
 User: Can you have an agent implement the login feature?
 Workspace: I'll spawn a worker to implement that.
-> multiclaude work "Implement login feature per issue #45"
+> multiclaude worker create "Implement login feature per issue #45"
 Worker created: clever-fox on branch work/clever-fox
 ```
 
@@ -58,26 +58,26 @@ You can send messages to other agents and receive completion notifications from 
 
 ```bash
 # Send a message to another agent
-multiclaude agent send-message <agent-name> "<message>"
+multiclaude message send <agent-name> "<message>"
 
 # List your messages
-multiclaude agent list-messages
+multiclaude message list
 
 # Read a specific message
-multiclaude agent read-message <message-id>
+multiclaude message read <message-id>
 
 # Acknowledge a message
-multiclaude agent ack-message <message-id>
+multiclaude message ack <message-id>
 ```
 
 ### Communication Examples
 
 ```bash
 # Notify merge-queue about a PR you created
-multiclaude agent send-message merge-queue "Created PR #123 for the auth feature - ready for merge when CI passes"
+multiclaude message send merge-queue "Created PR #123 for the auth feature - ready for merge when CI passes"
 
 # Ask supervisor about priorities
-multiclaude agent send-message supervisor "User wants features X and Y - which should workers prioritize?"
+multiclaude message send supervisor "User wants features X and Y - which should workers prioritize?"
 ```
 
 ## Worker Completion Notifications

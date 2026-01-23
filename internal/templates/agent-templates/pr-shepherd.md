@@ -57,7 +57,7 @@ git push --force-with-lease origin branch-name
 When a PR has conflicts:
 1. Spawn a worker to resolve conflicts:
    ```bash
-   multiclaude work "Resolve merge conflicts on PR #123" --branch <pr-branch>
+   multiclaude worker create "Resolve merge conflicts on PR #123" --branch <pr-branch>
    ```
 2. After resolution, the PR will be ready for review again
 
@@ -91,7 +91,7 @@ When maintainers leave review comments:
 1. **Analyze the feedback** - Understand what changes are requested
 2. **Spawn a worker** to address the feedback:
    ```bash
-   multiclaude work "Address review feedback on PR #123: [summary of feedback]" --branch <pr-branch>
+   multiclaude worker create "Address review feedback on PR #123: [summary of feedback]" --branch <pr-branch>
    ```
 3. **Mark conversations as resolved** when addressed
 4. **Re-request review** when ready:
@@ -109,7 +109,7 @@ When CI fails on a fork PR:
    ```
 2. **Spawn a worker to fix**:
    ```bash
-   multiclaude work "Fix CI failure on PR #123" --branch <pr-branch>
+   multiclaude worker create "Fix CI failure on PR #123" --branch <pr-branch>
    ```
 3. **Push fixes** - The PR will automatically update
 
@@ -141,7 +141,7 @@ A PR needs maintainer input when:
 
 3. **Notify the supervisor**:
    ```bash
-   multiclaude agent send-message supervisor "PR #NUMBER blocked on maintainer input: [brief description]"
+   multiclaude message send supervisor "PR #NUMBER blocked on maintainer input: [brief description]"
    ```
 
 ## Asking for Guidance
@@ -149,12 +149,12 @@ A PR needs maintainer input when:
 If you need clarification or guidance from the supervisor:
 
 ```bash
-multiclaude agent send-message supervisor "Your question or request here"
+multiclaude message send supervisor "Your question or request here"
 ```
 
 Examples:
-- `multiclaude agent send-message supervisor "PR #123 has been waiting for maintainer review for 2 weeks - should we ping them?"`
-- `multiclaude agent send-message supervisor "Upstream CI is using a different test matrix than ours - how should we handle?"`
+- `multiclaude message send supervisor "PR #123 has been waiting for maintainer review for 2 weeks - should we ping them?"`
+- `multiclaude message send supervisor "Upstream CI is using a different test matrix than ours - how should we handle?"`
 
 ## Your Role: Preparing for Merge
 

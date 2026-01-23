@@ -39,7 +39,7 @@ The supervisor monitors all other agents and nudges them toward progress. It:
 - Reports status when humans ask "what's everyone up to?"
 - Never directly merges or modifies PRs (that's merge-queue's job)
 
-**Key constraint**: The supervisor coordinates but doesn't execute. It communicates through `multiclaude agent send-message` rather than taking direct action on PRs.
+**Key constraint**: The supervisor coordinates but doesn't execute. It communicates through `multiclaude message send` rather than taking direct action on PRs.
 
 ### 2. Merge-Queue (`internal/prompts/merge-queue.md`)
 
@@ -55,7 +55,7 @@ This is the most complex agent with multiple responsibilities:
 | Check CI | `gh run list --branch main`, `gh pr checks <n>` |
 | Verify reviews | `gh pr view <n> --json reviews,reviewRequests` |
 | Merge PRs | `gh pr merge <n> --squash` |
-| Spawn fix workers | `multiclaude work "Fix CI for PR #N"` |
+| Spawn fix workers | `multiclaude worker create "Fix CI for PR #N"` |
 | Handle emergencies | Enter "emergency fix mode" when main is broken |
 
 **Critical behaviors:**
@@ -132,11 +132,14 @@ pending → delivered → read → acked
 
 ```bash
 # From any agent:
-multiclaude agent send-message <target> "<message>"
-multiclaude agent send-message --all "<broadcast>"
-multiclaude agent list-messages
-multiclaude agent ack-message <id>
+multiclaude message send <target> "<message>"
+multiclaude message send --all "<broadcast>"
+multiclaude message list
+multiclaude message ack <id>
+multiclaude message read <id>
 ```
+
+Note: The old `agent send-message`, `agent list-messages`, `agent read-message`, and `agent ack-message` commands are still available as aliases for backward compatibility.
 
 ### Implementation Details
 
@@ -286,7 +289,7 @@ CLI docs are auto-generated via `go generate ./pkg/config`.
 ### Spawn Flow (Worker Example)
 
 ```
-CLI: multiclaude work "task description"
+CLI: multiclaude worker create "task description"
          ↓
 1. Generate unique name (adjective-animal pattern)
 2. Create git worktree at ~/.multiclaude/wts/<repo>/<name>

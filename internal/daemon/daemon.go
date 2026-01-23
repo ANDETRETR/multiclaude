@@ -1012,7 +1012,7 @@ func (d *Daemon) handleCompleteAgent(req socket.Request) socket.Response {
 
 	agent, exists := d.state.GetAgent(repoName, agentName)
 	if !exists {
-		return socket.Response{Success: false, Error: fmt.Sprintf("agent '%s' not found in repository '%s' - check available agents with: multiclaude work list --repo %s", agentName, repoName, repoName)}
+		return socket.Response{Success: false, Error: fmt.Sprintf("agent '%s' not found in repository '%s' - check available agents with: multiclaude worker list --repo %s", agentName, repoName, repoName)}
 	}
 
 	// Mark as ready for cleanup
@@ -1092,7 +1092,7 @@ func (d *Daemon) handleRestartAgent(req socket.Request) socket.Response {
 
 	agent, exists := d.state.GetAgent(repoName, agentName)
 	if !exists {
-		return socket.Response{Success: false, Error: fmt.Sprintf("agent '%s' not found in repository '%s' - check available agents with: multiclaude work list --repo %s", agentName, repoName, repoName)}
+		return socket.Response{Success: false, Error: fmt.Sprintf("agent '%s' not found in repository '%s' - check available agents with: multiclaude worker list --repo %s", agentName, repoName, repoName)}
 	}
 
 	// Check if agent is marked for cleanup (completed)

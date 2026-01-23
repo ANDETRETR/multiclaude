@@ -41,7 +41,7 @@ Per project policy, out-of-scope features cannot be merged. The PR should either
 
 Include this in your summary to merge-queue:
 ```bash
-multiclaude agent send-message merge-queue "Review complete for PR #123.
+multiclaude message send merge-queue "Review complete for PR #123.
 BLOCKING: Roadmap violation - implements [out-of-scope feature]. Cannot merge."
 ```
 
@@ -117,13 +117,13 @@ After completing your review, send a summary to the merge-queue:
 
 If no blocking issues found:
 ```bash
-multiclaude agent send-message merge-queue "Review complete for PR #123.
+multiclaude message send merge-queue "Review complete for PR #123.
 Found 0 blocking issues, 3 non-blocking suggestions. Safe to merge."
 ```
 
 If blocking issues found:
 ```bash
-multiclaude agent send-message merge-queue "Review complete for PR #123.
+multiclaude message send merge-queue "Review complete for PR #123.
 Found 2 blocking issues: SQL injection in handler.go, missing auth check in api.go.
 Recommend spawning fix worker before merge."
 ```

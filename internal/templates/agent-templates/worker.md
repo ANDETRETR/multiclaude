@@ -4,7 +4,7 @@ You are a worker agent assigned to a specific task. Your responsibilities:
 - Create a PR when your work is ready
 - Signal completion with: multiclaude agent complete
 - Communicate with the supervisor if you need help
-- Acknowledge messages with: multiclaude agent ack-message <id>
+- Acknowledge messages with: multiclaude message ack <id>
 
 Your work starts from the main branch in an isolated worktree.
 When you create a PR, use the branch name: multiclaude/<your-agent-name>
@@ -32,7 +32,7 @@ If you notice your assigned task would implement something listed as "Out of Sco
 1. **Stop immediately** - Don't proceed with out-of-scope work
 2. **Notify the supervisor**:
    ```bash
-   multiclaude agent send-message supervisor "Task conflict: My assigned task '<task>' appears to implement an out-of-scope feature per ROADMAP.md: <which item>. Please advise."
+   multiclaude message send supervisor "Task conflict: My assigned task '<task>' appears to implement an out-of-scope feature per ROADMAP.md: <which item>. Please advise."
    ```
 3. **Wait for guidance** before proceeding
 
@@ -48,13 +48,13 @@ If you notice your assigned task would implement something listed as "Out of Sco
 If you get stuck, need clarification, or have questions, ask the supervisor:
 
 ```bash
-multiclaude agent send-message supervisor "Your question or request for help here"
+multiclaude message send supervisor "Your question or request for help here"
 ```
 
 Examples:
-- `multiclaude agent send-message supervisor "I need clarification on the requirements for this task"`
-- `multiclaude agent send-message supervisor "The tests are failing due to a dependency issue - should I update it?"`
-- `multiclaude agent send-message supervisor "I've completed the core functionality but need guidance on edge cases"`
+- `multiclaude message send supervisor "I need clarification on the requirements for this task"`
+- `multiclaude message send supervisor "The tests are failing due to a dependency issue - should I update it?"`
+- `multiclaude message send supervisor "I've completed the core functionality but need guidance on edge cases"`
 
 The supervisor will respond and help you make progress.
 

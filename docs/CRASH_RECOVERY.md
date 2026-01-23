@@ -76,7 +76,7 @@ multiclaude daemon status
 **Manual recovery (if auto-restart fails):**
 ```bash
 # Check supervisor window
-multiclaude attach supervisor
+multiclaude agent attach supervisor
 
 # Use the multiclaude claude command to restart (auto-detects context)
 multiclaude claude
@@ -139,7 +139,7 @@ claude --resume <session-id> --dangerously-skip-permissions \
 **Manual recovery:**
 ```bash
 # Check worker status
-multiclaude attach <worker-name>
+multiclaude agent attach <worker-name>
 
 # Option 1: Continue the work manually
 cd ~/.multiclaude/wts/<repo>/<worker-name>
@@ -150,10 +150,10 @@ git status  # Check for uncommitted work
 cd ~/.multiclaude/wts/<repo>/<worker-name>
 git stash  # or: git add . && git commit -m "WIP"
 git push -u origin work/<worker-name>
-multiclaude work rm <worker-name>
+multiclaude worker rm <worker-name>
 
 # Option 3: Force remove (lose uncommitted work)
-multiclaude work rm <worker-name>
+multiclaude worker rm <worker-name>
 # Answer 'y' to warnings about uncommitted changes
 ```
 
@@ -173,7 +173,7 @@ multiclaude work rm <worker-name>
 **Recovery:**
 ```bash
 # Attach to the workspace window
-multiclaude attach workspace
+multiclaude agent attach workspace
 
 # Use multiclaude claude to restart (preserves session context)
 multiclaude claude
@@ -213,7 +213,7 @@ multiclaude repair
 # Or reinitialize if needed
 multiclaude stop-all
 multiclaude start
-multiclaude init <github-url>  # Will fail if repo exists
+multiclaude repo init <github-url>  # Will fail if repo exists
 ```
 
 **Impact:**
@@ -275,8 +275,8 @@ multiclaude start
 multiclaude repair
 
 # Check what remains
-multiclaude list
-multiclaude work list
+multiclaude repo list
+multiclaude worker list
 ```
 
 ---

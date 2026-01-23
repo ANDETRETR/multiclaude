@@ -43,7 +43,7 @@ func TestGetDefaultPromptContent(t *testing.T) {
 	if !strings.Contains(supervisorPrompt, "supervisor agent") {
 		t.Error("supervisor prompt should mention 'supervisor agent'")
 	}
-	if !strings.Contains(supervisorPrompt, "multiclaude agent send-message") {
+	if !strings.Contains(supervisorPrompt, "multiclaude message send") {
 		t.Error("supervisor prompt should mention message commands")
 	}
 
@@ -52,7 +52,7 @@ func TestGetDefaultPromptContent(t *testing.T) {
 	if !strings.Contains(workspacePrompt, "user workspace") {
 		t.Error("workspace prompt should mention 'user workspace'")
 	}
-	if !strings.Contains(workspacePrompt, "multiclaude agent send-message") {
+	if !strings.Contains(workspacePrompt, "multiclaude message send") {
 		t.Error("workspace prompt should document inter-agent messaging capabilities")
 	}
 	if !strings.Contains(workspacePrompt, "Spawn and manage worker agents") {
@@ -342,7 +342,7 @@ func TestGetSlashCommandsPromptContainsCLICommands(t *testing.T) {
 		command     string
 		description string
 	}{
-		{"multiclaude work list", "/workers should include work list command"},
+		{"multiclaude worker list", "/workers should include worker list command"},
 	}
 
 	// Commands expected in /messages
@@ -350,7 +350,7 @@ func TestGetSlashCommandsPromptContainsCLICommands(t *testing.T) {
 		command     string
 		description string
 	}{
-		{"multiclaude agent list-messages", "/messages should include list-messages command"},
+		{"multiclaude message list", "/messages should include list command"},
 	}
 
 	allCommands := [][]struct {

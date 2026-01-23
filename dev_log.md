@@ -61,11 +61,11 @@
 
 **Commands Implemented:**
 - `multiclaude start/stop/status/logs` - Daemon control
-- `multiclaude init <github-url>` - Repository initialization
-- `multiclaude work <task>` - Worker creation
-- `multiclaude work list/rm` - Worker management
-- `multiclaude list` - List tracked repos
-- `multiclaude agent send-message/list-messages/ack-message` - Messaging
+- `multiclaude repo init <github-url>` - Repository initialization
+- `multiclaude worker create <task>` - Worker creation
+- `multiclaude worker list/rm` - Worker management
+- `multiclaude repo list` - List tracked repos
+- `multiclaude message send/list/read/ack` - Messaging
 - `multiclaude agent complete` - Signal completion
 
 **Testing:**

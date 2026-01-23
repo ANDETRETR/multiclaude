@@ -293,8 +293,8 @@ multiclaude
 │   ├── list-messages
 │   ├── read-message <id>
 │   ├── ack-message <id>
-│   └── complete
-├── attach <name>            # Attach to tmux window
+│   ├── complete
+│   └── attach <name>        # Attach to tmux window
 ├── cleanup [--dry-run]      # Clean orphaned resources
 ├── repair                   # Fix state
 └── daemon
@@ -309,7 +309,7 @@ multiclaude
 ### Repository Initialization
 
 ```
-User: multiclaude init https://github.com/org/repo
+User: multiclaude repo init https://github.com/org/repo
 
 CLI                          Daemon                       System
  │                              │                            │
@@ -339,7 +339,7 @@ CLI                          Daemon                       System
 ### Worker Creation
 
 ```
-User: multiclaude work "Add unit tests"
+User: multiclaude worker create "Add unit tests"
 
 CLI                          Daemon                       System
  │                              │                            │
@@ -360,7 +360,7 @@ CLI                          Daemon                       System
 ### Message Delivery
 
 ```
-Agent A: multiclaude agent send-message agent-b "Hello"
+Agent A: multiclaude message send agent-b "Hello"
 
 CLI                          Daemon                       System
  │                              │                            │
