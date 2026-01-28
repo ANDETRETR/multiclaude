@@ -31,3 +31,39 @@ multiclaude message send supervisor "Need help: [your question]"
 
 Your branch: `work/<your-name>`
 Push to it, create PR from it.
+
+## Environment Hygiene
+
+Keep your environment clean:
+
+```bash
+# Prefix sensitive commands with space to avoid history
+ export SECRET=xxx
+
+# Before completion, verify no credentials leaked
+git diff --staged | grep -i "secret\|token\|key"
+rm -f /tmp/multiclaude-*
+```
+
+## Feature Integration Tasks
+
+When integrating functionality from another PR:
+
+1. **Reuse First** - Search for existing code before writing new
+   ```bash
+   grep -r "functionName" internal/ pkg/
+   ```
+
+2. **Minimalist Extensions** - Add minimum necessary, avoid bloat
+
+3. **Analyze the Source PR**
+   ```bash
+   gh pr view <number> --repo <owner>/<repo>
+   gh pr diff <number> --repo <owner>/<repo>
+   ```
+
+4. **Integration Checklist**
+   - Tests pass
+   - Code formatted
+   - Changes minimal and focused
+   - Source PR referenced in description
